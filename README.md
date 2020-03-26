@@ -1,2 +1,2 @@
 # Playground
-Random stuff I don't want to loose.
+Samples for the various products I work on.
