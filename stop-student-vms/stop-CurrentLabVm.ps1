@@ -7,9 +7,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 .SYNOPSIS
 This script shuts down student's current lab vm.
 .PARAMETER labName
-Name of the lab for which the virtual machine needs to be shutdown.  
+Name of the lab for which the virtual machine needs to be shutdown.  This parameter is only required in when a school uses multiple subscriptions in Azure.  See notes for further details.
 .NOTES 
-Use the labName parameter in the uncommon situation the script is unable to determine which virtual machine it needs to shutdown. 
+This script is intended to be run on a student virtual machine.
+
+The script attempts to determine which virtual machine the student is logged into ask Lab Services to shut it down.  It looks for all running machines for a student that have the same private IP address as the current virtual machine.  In the rare occasion that a school uses different subscriptions for different labs, this may not be enough information to find the correct virtual machine.  If this is a possibility for a student, specify the lab name in the labName parameter to help the script to determine the correct virtual machine to be found.
 #>
 
 [CmdletBinding()]
@@ -70,5 +72,5 @@ if (0 -eq $studentLabVms.Count){
     Write-Host "Stopping virtual machine for '$($studentLabVms[0].name)' lab."
     Invoke-RestMethod -Method 'Post' -Uri $uri  -Body $body -Headers $headers -ContentType 'application/json'
 }else{
-    Write-Error "Unable to find which lab VM needs to be stopped, please specify lab name.  Virtual machines found for the following labs: $($($studentLabVms | Select-Object -ExpandProperty name) -join ', ')"
+    Write-Error "Unable to find which lab VM needs to be stopped, please specify labName paramter.  Virtual machines found for the following labs: $($($studentLabVms | Select-Object -ExpandProperty name) -join ', ')"
 }
