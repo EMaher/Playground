@@ -2,7 +2,7 @@
 
 This sample has script to help shutdown a  student Lab Services virtual machine so that Lab Services is notified and billing stops.  There are two parts.  The first setups up prerequisites and caches authorization information.  The second script calls Lab Services and asks it to stop the virtual machine.  
 
-These scripts are intended to be run on the student virtual machine.  Logic is in the scripts to find the correct virtual machine.  See 'stop-CurrentlabVm.ps1' notes for further details.
+**These scripts are intended to be run on the student virtual machine.**  There is logic in the scripts to find the correct virtual machine.  See 'stop-CurrentlabVm.ps1' notes for further details.
 
 ## Setup
 
