@@ -53,11 +53,11 @@ $studentLabVms = $studentLabVms | Where-Object { $ipAddresses.Contains($_.virtua
 Write-Verbose "Found lab virtual machines that also match local ip address for classes: $($($studentLabVms | Select-Object -ExpandProperty name) -join ', ')"
 
 #further filter on class name, if specified
-Write-Verbose "Filtering lab virtual machines based on lab name '$labName'"
 if (-not [string]::IsNullOrEmpty($labName)){
+    Write-Verbose "Filtering lab virtual machines based on lab name '$labName'"
     $studentLabVms = $studentLabVms | Where-Object name -eq $labName
+    Write-Verbose "Found lab virtual machines that also lab name '$labName': $($($studentLabVms | Select-Object -ExpandProperty name) -join ', ')"
 }
-Write-Verbose "Found lab virtual machines that also lab name '$labName': $($($studentLabVms | Select-Object -ExpandProperty name) -join ', ')"
 
 #stop virtual machine
 if (0 -eq $studentLabVms.Count){
@@ -72,5 +72,5 @@ if (0 -eq $studentLabVms.Count){
     Write-Host "Stopping virtual machine for '$($studentLabVms[0].name)' lab."
     Invoke-RestMethod -Method 'Post' -Uri $uri  -Body $body -Headers $headers -ContentType 'application/json'
 }else{
-    Write-Error "Unable to find which lab VM needs to be stopped, please specify labName paramter.  Virtual machines found for the following labs: $($($studentLabVms | Select-Object -ExpandProperty name) -join ', ')"
+    Write-Error "Unable to find which lab VM needs to be stopped. Please specify labName parameter.  Virtual machines found for the following labs: $($($studentLabVms | Select-Object -ExpandProperty name) -join ', ')"
 }
