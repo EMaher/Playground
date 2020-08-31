@@ -1,0 +1,2710 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {},
+    "variables": {
+        "storageAcctName": "[concat('storage', uniqueString(resourceGroup().id))]",
+        "functionAppName": "[concat('AddTimeSpans', uniqueString(resourceGroup().id))]"
+    },
+    "resources": [
+        {
+            "type": "microsoft.insights/components",
+            "apiVersion": "2018-05-01-preview",
+            "name": "[variables('functionAppName')]",
+            "location": "centralus",
+            "kind": "web",
+            "properties": {
+                "Application_Type": "web",
+                "Flow_Type": "Redfield",
+                "Request_Source": "AppServiceEnablementCreate",
+                "RetentionInDays": 90,
+                "publicNetworkAccessForIngestion": "Enabled",
+                "publicNetworkAccessForQuery": "Enabled"
+            }
+        },
+        {
+            "type": "microsoft.insights/components",
+            "apiVersion": "2018-05-01-preview",
+            "name": "[concat(variables('functionAppName'), 'Insights')]",
+            "location": "centralus",
+            "kind": "web",
+            "properties": {
+                "Application_Type": "web",
+                "Flow_Type": "Redfield",
+                "Request_Source": "AppServiceEnablementCreate",
+                "RetentionInDays": 90,
+                "publicNetworkAccessForIngestion": "Enabled",
+                "publicNetworkAccessForQuery": "Enabled"
+            }
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts",
+            "apiVersion": "2019-06-01",
+            "name": "[variables('storageAcctName')]",
+            "location": "centralus",
+            "sku": {
+                "name": "Standard_RAGRS",
+                "tier": "Standard"
+            },
+            "kind": "StorageV2",
+            "properties": {
+                "networkAcls": {
+                    "bypass": "AzureServices",
+                    "virtualNetworkRules": [],
+                    "ipRules": [],
+                    "defaultAction": "Allow"
+                },
+                "supportsHttpsTrafficOnly": true,
+                "encryption": {
+                    "services": {
+                        "file": {
+                            "keyType": "Account",
+                            "enabled": true
+                        },
+                        "blob": {
+                            "keyType": "Account",
+                            "enabled": true
+                        }
+                    },
+                    "keySource": "Microsoft.Storage"
+                },
+                "accessTier": "Cool"
+            }
+        },
+        {
+            "type": "Microsoft.Web/connections",
+            "apiVersion": "2016-06-01",
+            "name": "arm",
+            "location": "centralus",
+            "properties": {
+                "displayName": "ArmTemplateConnection",
+                "customParameterValues": {},
+                "api": {
+                    "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/arm')]"
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Web/connections",
+            "apiVersion": "2016-06-01",
+            "name": "azuretables",
+            "location": "centralus",
+            "properties": {
+                "displayName": "RequestInfo",
+                "customParameterValues": {},
+                "api": {
+                    "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuretables')]"
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Web/serverfarms",
+            "apiVersion": "2018-02-01",
+            "name": "ASP-TestLabAccount-b36c",
+            "location": "Central US",
+            "sku": {
+                "name": "Y1",
+                "tier": "Dynamic",
+                "size": "Y1",
+                "family": "Y",
+                "capacity": 0
+            },
+            "kind": "functionapp",
+            "properties": {
+                "perSiteScaling": false,
+                "maximumElasticWorkerCount": 1,
+                "isSpot": false,
+                "reserved": false,
+                "isXenon": false,
+                "hyperV": false,
+                "targetWorkerCount": 0,
+                "targetWorkerSizeId": 0
+            }
+        },
+        {
+            "type": "Microsoft.Web/sites",
+            "apiVersion": "2018-11-01",
+            "name": "[variables('functionAppName')]",
+            "location": "Central US",
+            "kind": "functionapp",
+            "properties": {
+                "enabled": true,
+                "hostNameSslStates": [
+                    {
+                        "name": "[concat(variables('functionAppName'), ' .azurewebsites.net')]",
+                        "sslState": "Disabled",
+                        "hostType": "Standard"
+                    },
+                    {
+                        "name": "[concat(variables('functionAppName'), ' .azurewebsites.net')]",
+                        "sslState": "Disabled",
+                        "hostType": "Repository"
+                    }
+                ],
+                "serverFarmId": "[concat( subscription().id, '/resourceGroups/', resourceGroup().name, '/providers/Microsoft.Web/serverfarms/ASP-TestLabAccount-b36c')]",
+                "reserved": false,
+                "isXenon": false,
+                "hyperV": false,
+                "siteConfig": {},
+                "scmSiteAlsoStopped": false,
+                "clientAffinityEnabled": true,
+                "clientCertEnabled": false,
+                "hostNamesDisabled": false,
+                "containerSize": 1536,
+                "dailyMemoryTimeQuota": 0,
+                "httpsOnly": false,
+                "redundancyMode": "None"
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/serverfarms', 'ASP-TestLabAccount-b36c')]"
+            ]
+        },
+        {
+            "type": "Microsoft.Web/sites/config",
+            "apiVersion": "2018-11-01",
+            "name": "[concat(variables('functionAppName'), '/web')]",
+            "location": "Central US",
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]"
+            ],
+            "properties": {
+                "numberOfWorkers": -1,
+                "defaultDocuments": [
+                    "Default.htm",
+                    "Default.html",
+                    "Default.asp",
+                    "index.htm",
+                    "index.html",
+                    "iisstart.htm",
+                    "default.aspx",
+                    "index.php"
+                ],
+                "netFrameworkVersion": "v4.0",
+                "phpVersion": "5.6",
+                "requestTracingEnabled": false,
+                "remoteDebuggingEnabled": false,
+                "httpLoggingEnabled": false,
+                "logsDirectorySizeLimit": 35,
+                "detailedErrorLoggingEnabled": false,
+                "publishingUsername": "$AddTimeSpans",
+                "azureStorageAccounts": {},
+                "scmType": "None",
+                "use32BitWorkerProcess": true,
+                "webSocketsEnabled": false,
+                "alwaysOn": false,
+                "managedPipelineMode": "Integrated",
+                "virtualApplications": [
+                    {
+                        "virtualPath": "/",
+                        "physicalPath": "site\\wwwroot",
+                        "preloadEnabled": false
+                    }
+                ],
+                "loadBalancing": "LeastRequests",
+                "experiments": {
+                    "rampUpRules": []
+                },
+                "autoHealEnabled": false,
+                "cors": {
+                    "allowedOrigins": [
+                        "https://functions.azure.com",
+                        "https://functions-staging.azure.com",
+                        "https://functions-next.azure.com"
+                    ],
+                    "supportCredentials": false
+                },
+                "localMySqlEnabled": false,
+                "ipSecurityRestrictions": [
+                    {
+                        "ipAddress": "Any",
+                        "action": "Allow",
+                        "priority": 1,
+                        "name": "Allow all",
+                        "description": "Allow all access"
+                    }
+                ],
+                "scmIpSecurityRestrictions": [
+                    {
+                        "ipAddress": "Any",
+                        "action": "Allow",
+                        "priority": 1,
+                        "name": "Allow all",
+                        "description": "Allow all access"
+                    }
+                ],
+                "scmIpSecurityRestrictionsUseMain": false,
+                "http20Enabled": false,
+                "minTlsVersion": "1.2",
+                "ftpsState": "AllAllowed",
+                "reservedInstanceCount": 0
+            }
+        },
+        {
+            "type": "Microsoft.Web/sites/functions",
+            "apiVersion": "2018-11-01",
+            "name": "[concat(variables('functionAppName'),'/Add')]",
+            "location": "Central US",
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]"
+            ],
+            "properties": {
+                "script_root_path_href": "[concat('https://', variables('functionAppName'), '.azurewebsites.net/admin/vfs/site/wwwroot/Add/')]",
+                "script_href": "[concat('https://', variables('functionAppName'), '.azurewebsites.net/admin/vfs/site/wwwroot/Add/run.csx')]",
+                "config_href": "[concat('https://', variables('functionAppName'), '.azurewebsites.net/admin/vfs/site/wwwroot/Add/function.json')]",
+                "href": "[concat('https://', variables('functionAppName'), '.azurewebsites.net/admin/functions/Add')]",
+                "config": {},
+                "test_data": "{\"method\":\"post\",\"queryStringParams\":[],\"headers\":[],\"body\":\"{\\n  \\\"span\\\": \\\"PT0S\\\",\\n  \\\"addHours\\\": \\\"11\\\"\\n}\"}"
+            }
+        },
+        {
+            "type": "Microsoft.Web/sites/hostNameBindings",
+            "apiVersion": "2018-11-01",
+            "name": "[concat(variables('functionAppName'), '/', variables('functionAppName') , '.azurewebsites.net')]",
+            "location": "Central US",
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', variables('functionAppName'))]"
+            ],
+            "properties": {
+                "siteName": "[variables('functionAppName')]",
+                "hostNameType": "Verified"
+            }
+        },
+
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "FindUserInfo",
+            "location": "centralus",
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/connections', 'arm')]",
+                "[resourceId('Microsoft.Web/connections', 'azuretables')]"
+            ],
+            "properties": {
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "manual": {
+                            "type": "Request",
+                            "kind": "Http",
+                            "inputs": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "actions": {
+                        "Get_all_LabAccounts_for_Subscriptions": {
+                            "foreach": "@variables('SubscriptionIdList')",
+                            "actions": {
+                                "Get_all_Labs_for_LabAccounts": {
+                                    "foreach": "@body('Get_list_of_LabAccounts')?['value']",
+                                    "actions": {
+                                        "Get_all_users_for_Lab": {
+                                            "foreach": "@body('Parse_Labs_response')?['value']",
+                                            "actions": {
+                                                "Parse_Users_response": {
+                                                    "runAfter": {
+                                                        "Read_users_for_lab": [
+                                                            "Succeeded"
+                                                        ]
+                                                    },
+                                                    "type": "ParseJson",
+                                                    "inputs": {
+                                                        "content": "@body('Read_users_for_lab')",
+                                                        "schema": {
+                                                            "properties": {
+                                                                "value": {
+                                                                    "items": {
+                                                                        "properties": {
+                                                                            "id": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "location": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "name": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "properties": {
+                                                                                "properties": {
+                                                                                    "additionalUsageQuota": {
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "email": {
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "familyName": {
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "givenName": {
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "latestOperationResult": {
+                                                                                        "properties": {},
+                                                                                        "type": "object"
+                                                                                    },
+                                                                                    "latestRegistrationLinkEmailSent": {
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "provisioningState": {
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "registrationLinkEmailState": {
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "registrationState": {
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "tenantId": {
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "totalUsage": {
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "uniqueIdentifier": {
+                                                                                        "type": "string"
+                                                                                    }
+                                                                                },
+                                                                                "type": "object"
+                                                                            },
+                                                                            "type": {
+                                                                                "type": "string"
+                                                                            }
+                                                                        },
+                                                                        "required": [
+                                                                            "properties",
+                                                                            "id",
+                                                                            "name",
+                                                                            "type",
+                                                                            "location"
+                                                                        ],
+                                                                        "type": "object"
+                                                                    },
+                                                                    "type": "array"
+                                                                }
+                                                            },
+                                                            "type": "object"
+                                                        }
+                                                    }
+                                                },
+                                                "Parse_single_Lab": {
+                                                    "runAfter": {},
+                                                    "type": "ParseJson",
+                                                    "inputs": {
+                                                        "content": "@items('Get_all_users_for_Lab')",
+                                                        "schema": {
+                                                            "properties": {
+                                                                "id": {
+                                                                    "type": "string"
+                                                                },
+                                                                "location": {
+                                                                    "type": "string"
+                                                                },
+                                                                "name": {
+                                                                    "type": "string"
+                                                                },
+                                                                "properties": {
+                                                                    "properties": {
+                                                                        "connectivityPolicy": {
+                                                                            "properties": {
+                                                                                "RdpEnabled": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "RdpInBrowserEnabled": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "SshEnabled": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "SshInBrowserEnabled": {
+                                                                                    "type": "string"
+                                                                                }
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        "createdByObjectId": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "createdByUserPrincipalName": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "createdDate": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "enableDisconnectOnIdle": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "enableNoConnectShutdown": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "gpuDriverStateDismissed": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "idleConfigState": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "idleGracePeriod": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "idleNoConnectGracePeriod": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "idleOsGracePeriod": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "idleShutdownMode": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "invitationCode": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "ipAddress": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "maxUsersInLab": {
+                                                                            "type": "integer"
+                                                                        },
+                                                                        "provisioningState": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "sharedPasswordEnabled": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "uniqueIdentifier": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "usageQuota": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "userAccessMode": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "userQuota": {
+                                                                            "type": "integer"
+                                                                        }
+                                                                    },
+                                                                    "type": "object"
+                                                                },
+                                                                "type": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "type": "object"
+                                                        }
+                                                    }
+                                                },
+                                                "Read_users_for_lab": {
+                                                    "runAfter": {
+                                                        "Set_current_Lab": [
+                                                            "Succeeded"
+                                                        ]
+                                                    },
+                                                    "type": "ApiConnection",
+                                                    "inputs": {
+                                                        "host": {
+                                                            "connection": {
+                                                                "name": "@parameters('$connections')['arm']['connectionId']"
+                                                            }
+                                                        },
+                                                        "method": "get",
+                                                        "path": "/subscriptions/@{encodeURIComponent(variables('CurrentSubscriptionId'))}/resourcegroups/@{encodeURIComponent(variables('CurrentResourceGroup'))}/providers/@{encodeURIComponent('Microsoft.LabServices')}/@{encodeURIComponent('/labAccounts/',variables('CurrentLabAccount'),'/labs/',variables('CurrentLab'),'/users')}",
+                                                        "queries": {
+                                                            "x-ms-api-version": "@variables('ApiVersion')"
+                                                        }
+                                                    }
+                                                },
+                                                "Record_userInfo_foreach_User": {
+                                                    "foreach": "@body('Parse_Users_response')?['value']",
+                                                    "actions": {
+                                                        "Insert_or_Replace_Entity": {
+                                                            "runAfter": {
+                                                                "Parse_Single_User": [
+                                                                    "Succeeded"
+                                                                ]
+                                                            },
+                                                            "type": "ApiConnection",
+                                                            "inputs": {
+                                                                "body": {
+                                                                    "labId": "/subscriptions/@{variables('CurrentSubscriptionId')}/resourcegroups/@{variables('CurrentResourceGroup')}/providers/microsoft.labservices/labaccounts/@{variables('CurrentLabAccount')}/labs/@{variables('CurrentLab')}",
+                                                                    "labName": "@variables('CurrentLab')",
+                                                                    "puid": "@last(split(body('Parse_Single_User')?['id'], '/'))",
+                                                                    "studentId": "@body('Parse_Single_User')?['id']"
+                                                                },
+                                                                "host": {
+                                                                    "connection": {
+                                                                        "name": "@parameters('$connections')['azuretables']['connectionId']"
+                                                                    }
+                                                                },
+                                                                "method": "put",
+                                                                "path": "/Tables/@{encodeURIComponent('studentUserInfo')}/entities(PartitionKey='@{encodeURIComponent(body('Parse_Single_User')?['properties']?['email'])}',RowKey='@{encodeURIComponent(variables('CurrentLab'))}')"
+                                                            }
+                                                        },
+                                                        "Parse_Single_User": {
+                                                            "runAfter": {},
+                                                            "type": "ParseJson",
+                                                            "inputs": {
+                                                                "content": "@items('Record_userInfo_foreach_User')",
+                                                                "schema": {
+                                                                    "properties": {
+                                                                        "id": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "location": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "name": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "properties": {
+                                                                            "properties": {
+                                                                                "additionalUsageQuota": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "email": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "familyName": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "givenName": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "latestRegistrationLinkEmailSent": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "provisioningState": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "registrationLinkEmailState": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "registrationState": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "tenantId": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "totalUsage": {
+                                                                                    "type": "string"
+                                                                                },
+                                                                                "uniqueIdentifier": {
+                                                                                    "type": "string"
+                                                                                }
+                                                                            },
+                                                                            "type": "object"
+                                                                        },
+                                                                        "type": {
+                                                                            "type": "string"
+                                                                        }
+                                                                    },
+                                                                    "type": "object"
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    "runAfter": {
+                                                        "Parse_Users_response": [
+                                                            "Succeeded"
+                                                        ]
+                                                    },
+                                                    "type": "Foreach"
+                                                },
+                                                "Set_current_Lab": {
+                                                    "runAfter": {
+                                                        "Parse_single_Lab": [
+                                                            "Succeeded"
+                                                        ]
+                                                    },
+                                                    "type": "SetVariable",
+                                                    "inputs": {
+                                                        "name": "CurrentLab",
+                                                        "value": "@body('Parse_single_Lab')?['name']"
+                                                    }
+                                                }
+                                            },
+                                            "runAfter": {
+                                                "Parse_Labs_response": [
+                                                    "Succeeded"
+                                                ]
+                                            },
+                                            "type": "Foreach"
+                                        },
+                                        "Parse_Labs_response": {
+                                            "runAfter": {
+                                                "Read_list_of_labs_for_current_LabAccount": [
+                                                    "Succeeded"
+                                                ]
+                                            },
+                                            "type": "ParseJson",
+                                            "inputs": {
+                                                "content": "@body('Read_list_of_labs_for_current_LabAccount')",
+                                                "schema": {
+                                                    "properties": {
+                                                        "value": {
+                                                            "items": {
+                                                                "properties": {
+                                                                    "id": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "location": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "name": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "properties": {
+                                                                        "properties": {
+                                                                            "connectivityPolicy": {
+                                                                                "properties": {
+                                                                                    "RdpEnabled": {
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "RdpInBrowserEnabled": {
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "SshEnabled": {
+                                                                                        "type": "string"
+                                                                                    },
+                                                                                    "SshInBrowserEnabled": {
+                                                                                        "type": "string"
+                                                                                    }
+                                                                                },
+                                                                                "type": "object"
+                                                                            },
+                                                                            "createdByObjectId": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "createdByUserPrincipalName": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "createdDate": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "enableDisconnectOnIdle": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "enableNoConnectShutdown": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "gpuDriverStateDismissed": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "idleConfigState": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "idleGracePeriod": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "idleNoConnectGracePeriod": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "idleOsGracePeriod": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "idleShutdownMode": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "invitationCode": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "ipAddress": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "latestOperationResult": {
+                                                                                "properties": {},
+                                                                                "type": "object"
+                                                                            },
+                                                                            "maxUsersInLab": {
+                                                                                "type": "integer"
+                                                                            },
+                                                                            "provisioningState": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "sharedPasswordEnabled": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "uniqueIdentifier": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "usageQuota": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "userAccessMode": {
+                                                                                "type": "string"
+                                                                            },
+                                                                            "userQuota": {
+                                                                                "type": "integer"
+                                                                            }
+                                                                        },
+                                                                        "type": "object"
+                                                                    },
+                                                                    "type": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                "required": [
+                                                                    "properties",
+                                                                    "id",
+                                                                    "name",
+                                                                    "type",
+                                                                    "location"
+                                                                ],
+                                                                "type": "object"
+                                                            },
+                                                            "type": "array"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                }
+                                            }
+                                        },
+                                        "Parse_single_LabAccount": {
+                                            "runAfter": {},
+                                            "type": "ParseJson",
+                                            "inputs": {
+                                                "content": "@items('Get_all_Labs_for_LabAccounts')",
+                                                "schema": {
+                                                    "properties": {
+                                                        "id": {
+                                                            "type": "string"
+                                                        },
+                                                        "location": {
+                                                            "type": "string"
+                                                        },
+                                                        "name": {
+                                                            "type": "string"
+                                                        },
+                                                        "properties": {
+                                                            "properties": {
+                                                                "clientConnections": {
+                                                                    "type": "string"
+                                                                },
+                                                                "enableBastion": {
+                                                                    "type": "string"
+                                                                },
+                                                                "enableDisconnectOnIdle": {
+                                                                    "type": "string"
+                                                                },
+                                                                "enableNoConnectShutdown": {
+                                                                    "type": "string"
+                                                                },
+                                                                "enabledRegionSelection": {
+                                                                    "type": "boolean"
+                                                                },
+                                                                "geo": {
+                                                                    "type": "string"
+                                                                },
+                                                                "idleGracePeriod": {
+                                                                    "type": "string"
+                                                                },
+                                                                "idleNoConnectGracePeriod": {
+                                                                    "type": "string"
+                                                                },
+                                                                "idleOsGracePeriod": {
+                                                                    "type": "string"
+                                                                },
+                                                                "idleShutdownMode": {
+                                                                    "type": "string"
+                                                                },
+                                                                "labServicesObjectId": {
+                                                                    "type": "string"
+                                                                },
+                                                                "latestOperationResult": {
+                                                                    "properties": {
+                                                                        "operationUrl": {
+                                                                            "type": "string"
+                                                                        }
+                                                                    },
+                                                                    "type": "object"
+                                                                },
+                                                                "provisioningState": {
+                                                                    "type": "string"
+                                                                },
+                                                                "uniqueIdentifier": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "type": "object"
+                                                        },
+                                                        "type": {
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                }
+                                            }
+                                        },
+                                        "Read_list_of_labs_for_current_LabAccount": {
+                                            "runAfter": {
+                                                "Set_Current_ResourceGroup": [
+                                                    "Succeeded"
+                                                ]
+                                            },
+                                            "type": "ApiConnection",
+                                            "inputs": {
+                                                "host": {
+                                                    "connection": {
+                                                        "name": "@parameters('$connections')['arm']['connectionId']"
+                                                    }
+                                                },
+                                                "method": "get",
+                                                "path": "/subscriptions/@{encodeURIComponent(variables('CurrentSubscriptionId'))}/resourcegroups/@{encodeURIComponent(variables('CurrentResourceGroup'))}/providers/@{encodeURIComponent('Microsoft.LabServices')}/@{encodeURIComponent('/labAccounts/',variables('CurrentLabAccount'),'/labs')}",
+                                                "queries": {
+                                                    "x-ms-api-version": "@variables('ApiVersion')"
+                                                }
+                                            }
+                                        },
+                                        "Set_Current_LabAccount": {
+                                            "runAfter": {
+                                                "Parse_single_LabAccount": [
+                                                    "Succeeded"
+                                                ]
+                                            },
+                                            "type": "SetVariable",
+                                            "inputs": {
+                                                "name": "CurrentLabAccount",
+                                                "value": "@body('Parse_single_LabAccount')?['name']"
+                                            }
+                                        },
+                                        "Set_Current_ResourceGroup": {
+                                            "runAfter": {
+                                                "Set_Current_LabAccount": [
+                                                    "Succeeded"
+                                                ]
+                                            },
+                                            "type": "SetVariable",
+                                            "inputs": {
+                                                "name": "CurrentResourceGroup",
+                                                "value": "@{split(body('Parse_single_LabAccount')?['id'],'/')[4]}"
+                                            }
+                                        }
+                                    },
+                                    "runAfter": {
+                                        "Parse_LabAccount_response": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "Foreach"
+                                },
+                                "Get_list_of_LabAccounts": {
+                                    "runAfter": {
+                                        "Set_CurrentSubscriptionId": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "ApiConnection",
+                                    "inputs": {
+                                        "host": {
+                                            "connection": {
+                                                "name": "@parameters('$connections')['arm']['connectionId']"
+                                            }
+                                        },
+                                        "method": "get",
+                                        "path": "/subscriptions/@{encodeURIComponent(items('Get_all_LabAccounts_for_Subscriptions'))}/resources",
+                                        "queries": {
+                                            "$filter": "resourceType eq 'Microsoft.LabServices/labaccounts'",
+                                            "x-ms-api-version": "2016-06-01"
+                                        }
+                                    }
+                                },
+                                "Parse_LabAccount_response": {
+                                    "runAfter": {
+                                        "Get_list_of_LabAccounts": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "ParseJson",
+                                    "inputs": {
+                                        "content": "@body('Get_list_of_LabAccounts')",
+                                        "schema": {
+                                            "items": {
+                                                "properties": {
+                                                    "id": {
+                                                        "type": "string"
+                                                    },
+                                                    "kind": {
+                                                        "type": "string"
+                                                    },
+                                                    "location": {
+                                                        "type": "string"
+                                                    },
+                                                    "name": {
+                                                        "type": "string"
+                                                    },
+                                                    "sku": {
+                                                        "properties": {
+                                                            "capacity": {
+                                                                "type": "integer"
+                                                            },
+                                                            "name": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    },
+                                                    "tags": {
+                                                        "properties": {},
+                                                        "type": "object"
+                                                    },
+                                                    "type": {
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                "required": [
+                                                    "id",
+                                                    "name",
+                                                    "type",
+                                                    "location"
+                                                ],
+                                                "type": "array"
+                                            },
+                                            "type": "object"
+                                        }
+                                    }
+                                },
+                                "Set_CurrentSubscriptionId": {
+                                    "runAfter": {},
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "CurrentSubscriptionId",
+                                        "value": "@{items('Get_all_LabAccounts_for_Subscriptions')}"
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Initialize_Current_Lab": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Foreach"
+                        },
+                        "Initalize_Current_Subscription": {
+                            "runAfter": {
+                                "Initialize_SubscriptionId_List": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "CurrentSubscriptionId",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_Api-Version": {
+                            "runAfter": {},
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "ApiVersion",
+                                        "type": "string",
+                                        "value": "2019-01-01-preview"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_Current_Lab": {
+                            "runAfter": {
+                                "Initialize_Current_LabAccount": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "CurrentLab",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_Current_LabAccount": {
+                            "runAfter": {
+                                "Initialize_Current_ResourceGroup": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "CurrentLabAccount",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_Current_ResourceGroup": {
+                            "runAfter": {
+                                "Initalize_Current_Subscription": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "CurrentResourceGroup",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_Input_LabName": {
+                            "runAfter": {
+                                "Initialize_StudentEmailInput": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "LabNameInput",
+                                        "type": "string",
+                                        "value": "lab1"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_StudentEmailInput": {
+                            "runAfter": {
+                                "Initialize_Api-Version": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "StudentEmailInput",
+                                        "type": "string",
+                                        "value": ""
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_SubscriptionId_List": {
+                            "runAfter": {
+                                "Initialize_Input_LabName": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "SubscriptionIdList",
+                                        "type": "array",
+                                        "value": "@createArray('')"
+                                    }
+                                ]
+                            }
+                        },
+                        "Response": {
+                            "runAfter": {
+                                "Get_all_LabAccounts_for_Subscriptions": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Response",
+                            "kind": "Http",
+                            "inputs": {
+                                "statusCode": 200
+                            }
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {
+                            "arm": {
+                                "connectionId": "[resourceId('Microsoft.Web/connections', 'arm')]",
+                                "connectionName": "arm",
+                                "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/arm')]"
+                            },
+                            "azuretables": {
+                                "connectionId": "[resourceId('Microsoft.Web/connections', 'azuretables')]",
+                                "connectionName": "azuretables",
+                                "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuretables')]"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "IncreaseStudentQuotaByEmailLogicApp",
+            "location": "centralus",
+            "dependsOn": [
+                "[resourceId('Microsoft.Logic/workflows', 'QuotoaIncreaseLogicApp')]",
+                "[resourceId('Microsoft.Web/connections', 'azuretables')]"
+            ],
+            "properties": {
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "manual": {
+                            "type": "Request",
+                            "kind": "Http",
+                            "inputs": {
+                                "schema": {
+                                    "properties": {
+                                        "studentEmail": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "actions": {
+                        "For_each": {
+                            "foreach": "@body('Get_entities')?['value']",
+                            "actions": {
+                                "Parse_JSON": {
+                                    "runAfter": {},
+                                    "type": "ParseJson",
+                                    "inputs": {
+                                        "content": "@items('For_each')",
+                                        "schema": {
+                                            "properties": {
+                                                "PartitionKey": {
+                                                    "type": "string"
+                                                },
+                                                "RowKey": {
+                                                    "type": "string"
+                                                },
+                                                "Timestamp": {
+                                                    "type": "string"
+                                                },
+                                                "labId": {
+                                                    "type": "string"
+                                                },
+                                                "labName": {
+                                                    "type": "string"
+                                                },
+                                                "odata.etag": {
+                                                    "type": "string"
+                                                },
+                                                "puid": {
+                                                    "type": "string"
+                                                },
+                                                "studentId": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    }
+                                },
+                                "QuotoaIncreaseLogicApp": {
+                                    "runAfter": {
+                                        "Parse_JSON": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "Workflow",
+                                    "inputs": {
+                                        "body": {
+                                            "studentResourceId": "@body('Parse_JSON')?['studentId']"
+                                        },
+                                        "host": {
+                                            "triggerName": "manual",
+                                            "workflow": {
+                                                "id": "[resourceId('Microsoft.Logic/workflows', 'QuotoaIncreaseLogicApp')]"
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Get_entities": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Foreach"
+                        },
+                        "Get_entities": {
+                            "runAfter": {},
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['azuretables']['connectionId']"
+                                    }
+                                },
+                                "method": "get",
+                                "path": "/Tables/@{encodeURIComponent('studentUserInfo')}/entities",
+                                "queries": {
+                                    "$filter": "PartitionKey eq '@{triggerBody()?['studentEmail']}'"
+                                }
+                            }
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {
+                            "azuretables": {
+                                "connectionId": "[resourceId('Microsoft.Web/connections', 'azuretables')]",
+                                "connectionName": "azuretables",
+                                "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuretables')]"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "QuotaIncreaseLogicApp2",
+            "location": "centralus",
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/sites/functions', variables('functionAppName'), 'Add')]",
+                "[resourceId('Microsoft.Web/connections', 'arm')]",
+                "[resourceId('Microsoft.Web/connections', 'azuretables')]"
+            ],
+            "properties": {
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "manual": {
+                            "type": "Request",
+                            "kind": "Http",
+                            "inputs": {
+                                "method": "POST",
+                                "schema": {
+                                    "properties": {
+                                        "studentResourceId": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "actions": {
+                        "Calculate_new_quota_usage": {
+                            "runAfter": {
+                                "Initialize_Additional_Time": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Function",
+                            "inputs": {
+                                "body": {
+                                    "addHours": "@{variables('AdditionalTimeInHours')}",
+                                    "span": "@{body('Parse_user_info')?['properties']?['additionalUsageQuota']}"
+                                },
+                                "function": {
+                                    "id": "[resourceId('Microsoft.Web/sites/functions', variables('functionAppName'), 'Add')]"
+                                }
+                            }
+                        },
+                        "Call_Quota_Increase_api": {
+                            "runAfter": {
+                                "Verify_request_not_within_last_24_hours": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "body": {
+                                    "properties": {
+                                        "additionalUsageQuota": "@{body('Calculate_new_quota_usage')}"
+                                    }
+                                },
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['arm']['connectionId']"
+                                    }
+                                },
+                                "method": "put",
+                                "path": "/subscriptions/@{encodeURIComponent(variables('subscriptionId'))}/resourcegroups/@{encodeURIComponent(variables('resourceGroupName'))}/providers/@{encodeURIComponent('Microsoft.LabServices')}/@{encodeURIComponent('labaccounts/',variables('labAccountName'),'/labs/',variables('labName'),'/users/',variables('studentUserId'))}",
+                                "queries": {
+                                    "x-ms-api-version": "@variables('ApiVersion')"
+                                }
+                            }
+                        },
+                        "Get_array_of_userResourceId_parts": {
+                            "runAfter": {
+                                "Initialize_studentResourceId_array": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "SetVariable",
+                            "inputs": {
+                                "name": "studentResourceIdArray",
+                                "value": "@split(triggerBody()?['studentResourceId'], '/')"
+                            }
+                        },
+                        "Get_records_for_last_request_information": {
+                            "runAfter": {
+                                "Calculate_new_quota_usage": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['azuretables']['connectionId']"
+                                    }
+                                },
+                                "method": "get",
+                                "path": "/Tables/@{encodeURIComponent('requestInfo')}/entities",
+                                "queries": {
+                                    "$filter": "PartitionKey eq '@{variables('studentUserId')}' and RowKey eq '@{triggerBody()?['labName']}'"
+                                }
+                            }
+                        },
+                        "Initialize_Additional_Time": {
+                            "runAfter": {
+                                "Initialize_ResourceProvider": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "AdditionalTimeInHours",
+                                        "type": "integer",
+                                        "value": 10
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_Api_Version": {
+                            "runAfter": {},
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "ApiVersion",
+                                        "type": "string",
+                                        "value": "2019-01-01-preview"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_ResourceProvider": {
+                            "runAfter": {
+                                "Parse_user_info": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "ResourceProvider",
+                                        "type": "string",
+                                        "value": "Microsoft.LabServices"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_labAccountName": {
+                            "runAfter": {
+                                "Initialize_resourceGroupName": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "labAccountName",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_labName": {
+                            "runAfter": {
+                                "Initialize_labAccountName": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "labName",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_lastRequest_entities_count": {
+                            "runAfter": {
+                                "Get_records_for_last_request_information": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "lastRequestEntityInfoCount",
+                                        "type": "integer",
+                                        "value": "@length(body('Get_records_for_last_request_information')?['value'])"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_resourceGroupName": {
+                            "runAfter": {
+                                "Initialize_subscriptionId": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "resourceGroupName",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_studentResourceId_array": {
+                            "runAfter": {
+                                "Initialize_studentUserId": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "studentResourceIdArray",
+                                        "type": "array"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_studentUserId": {
+                            "runAfter": {
+                                "Initialize_labName": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "studentUserId",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_subscriptionId": {
+                            "runAfter": {
+                                "Initialize_Api_Version": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "subscriptionId",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        },
+                        "Parse_user_info": {
+                            "runAfter": {
+                                "Read_user_info_for_specified_lab": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ParseJson",
+                            "inputs": {
+                                "content": "@body('Read_user_info_for_specified_lab')",
+                                "schema": {
+                                    "properties": {
+                                        "id": {
+                                            "type": "string"
+                                        },
+                                        "location": {
+                                            "type": "string"
+                                        },
+                                        "name": {
+                                            "type": "string"
+                                        },
+                                        "properties": {
+                                            "properties": {
+                                                "additionalUsageQuota": {
+                                                    "type": "string"
+                                                },
+                                                "email": {
+                                                    "type": "string"
+                                                },
+                                                "familyName": {
+                                                    "type": "string"
+                                                },
+                                                "givenName": {
+                                                    "type": "string"
+                                                },
+                                                "latestRegistrationLinkEmailSent": {
+                                                    "type": "string"
+                                                },
+                                                "provisioningState": {
+                                                    "type": "string"
+                                                },
+                                                "registrationLinkEmailState": {
+                                                    "type": "string"
+                                                },
+                                                "registrationState": {
+                                                    "type": "string"
+                                                },
+                                                "tenantId": {
+                                                    "type": "string"
+                                                },
+                                                "totalUsage": {
+                                                    "type": "string"
+                                                },
+                                                "uniqueIdentifier": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "Read_user_info_for_specified_lab": {
+                            "runAfter": {
+                                "set_studentId_from_userResourceid": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['arm']['connectionId']"
+                                    }
+                                },
+                                "method": "get",
+                                "path": "/subscriptions/@{encodeURIComponent(variables('subscriptionId'))}/resourcegroups/@{encodeURIComponent(variables('resourceGroupName'))}/providers/@{encodeURIComponent('Microsoft.LabServices')}/@{encodeURIComponent('labaccounts/',variables('labAccountName'),'/labs/',variables('labName'),'/users/',variables('studentUserId'))}",
+                                "queries": {
+                                    "x-ms-api-version": "@variables('ApiVersion')"
+                                }
+                            }
+                        },
+                        "Response": {
+                            "runAfter": {
+                                "Call_Quota_Increase_api": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Response",
+                            "kind": "Http",
+                            "inputs": {
+                                "body": {
+                                    "message": "Quota increased for lab @{variables('labName')} for @{variables('studentUserId')}"
+                                },
+                                "statusCode": 200
+                            }
+                        },
+                        "Set_labAccountName_from_userResourceId": {
+                            "runAfter": {
+                                "Set_resourceGroupName_from_userResourceId": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "SetVariable",
+                            "inputs": {
+                                "name": "labAccountName",
+                                "value": "@{variables('studentResourceIdArray')[8]}"
+                            }
+                        },
+                        "Set_labName_from_userResourceId": {
+                            "runAfter": {
+                                "Set_labAccountName_from_userResourceId": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "SetVariable",
+                            "inputs": {
+                                "name": "labName",
+                                "value": "@{variables('studentResourceIdArray')[10]}"
+                            }
+                        },
+                        "Set_resourceGroupName_from_userResourceId": {
+                            "runAfter": {
+                                "Set_subscriptionId_from_userResourceId": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "SetVariable",
+                            "inputs": {
+                                "name": "resourceGroupName",
+                                "value": "@{variables('studentResourceIdArray')[4]}"
+                            }
+                        },
+                        "Set_subscriptionId_from_userResourceId": {
+                            "runAfter": {
+                                "Get_array_of_userResourceId_parts": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "SetVariable",
+                            "inputs": {
+                                "name": "subscriptionId",
+                                "value": "@variables('studentResourceIdArray')[2]"
+                            }
+                        },
+                        "Update_last_request_for_student": {
+                            "runAfter": {
+                                "Verify_request_not_within_last_24_hours": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "body": {
+                                    "lastRequestTime": "@{utcNow()}"
+                                },
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['azuretables']['connectionId']"
+                                    }
+                                },
+                                "method": "put",
+                                "path": "/Tables/@{encodeURIComponent('requestInfo')}/entities(PartitionKey='@{encodeURIComponent(variables('studentUserId'))}',RowKey='@{encodeURIComponent(triggerBody()?['labName'])}')"
+                            }
+                        },
+                        "Verify_request_not_within_last_24_hours": {
+                            "actions": {
+                                "Condition_2": {
+                                    "actions": {},
+                                    "runAfter": {
+                                        "Parse_JSON": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "else": {
+                                        "actions": {
+                                            "Terminate": {
+                                                "runAfter": {
+                                                    "Too_soon_response": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "type": "Terminate",
+                                                "inputs": {
+                                                    "runError": {
+                                                        "code": "403"
+                                                    },
+                                                    "runStatus": "Failed"
+                                                }
+                                            },
+                                            "Too_soon_response": {
+                                                "runAfter": {},
+                                                "type": "Response",
+                                                "kind": "Http",
+                                                "inputs": {
+                                                    "body": {
+                                                        "message": "Request made too soon for lab @{triggerBody()?['labName']}.  Request will be allowed at @{convertFromUtc(addDays(body('Parse_JSON')?['lastRequestTime'], 1), 'Eastern Standard Time', 'f')} Eastern Standard Time."
+                                                    },
+                                                    "statusCode": 403
+                                                }
+                                            }
+                                        }
+                                    },
+                                    "expression": {
+                                        "and": [
+                                            {
+                                                "lessOrEquals": [
+                                                    "@addDays(body('Parse_JSON')?['lastRequestTime'],1)",
+                                                    "@utcNow()"
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    "type": "If"
+                                },
+                                "Parse_JSON": {
+                                    "runAfter": {},
+                                    "type": "ParseJson",
+                                    "inputs": {
+                                        "content": "@first(body('Get_records_for_last_request_information')?['value'])",
+                                        "schema": {
+                                            "properties": {
+                                                "PartitionKey": {
+                                                    "type": "string"
+                                                },
+                                                "RowKey": {
+                                                    "type": "string"
+                                                },
+                                                "lastRequestTime": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Initialize_lastRequest_entities_count": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "expression": {
+                                "and": [
+                                    {
+                                        "greater": [
+                                            "@variables('lastRequestEntityInfoCount')",
+                                            0
+                                        ]
+                                    }
+                                ]
+                            },
+                            "type": "If"
+                        },
+                        "set_studentId_from_userResourceid": {
+                            "runAfter": {
+                                "Set_labName_from_userResourceId": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "SetVariable",
+                            "inputs": {
+                                "name": "studentUserId",
+                                "value": "@{variables('studentResourceIdArray')[12]}"
+                            }
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {
+                            "arm": {
+                                "connectionId": "[resourceId('Microsoft.Web/connections', 'arm')]",
+                                "connectionName": "arm",
+                                "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/arm')]"
+                            },
+                            "azuretables": {
+                                "connectionId": "[resourceId('Microsoft.Web/connections', 'azuretables')]",
+                                "connectionName": "azuretables",
+                                "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuretables')]"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "2017-07-01",
+            "name": "QuotoaIncreaseLogicApp",
+            "location": "centralus",
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/sites/functions', variables('functionAppName'), 'Add')]",
+                "[resourceId('Microsoft.Web/connections', 'arm')]",
+                "[resourceId('Microsoft.Web/connections', 'azuretables')]"
+            ],
+            "properties": {
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "manual": {
+                            "type": "Request",
+                            "kind": "Http",
+                            "inputs": {
+                                "method": "POST",
+                                "schema": {
+                                    "properties": {
+                                        "labAccountName": {
+                                            "type": "string"
+                                        },
+                                        "labName": {
+                                            "type": "string"
+                                        },
+                                        "resourceGroup": {
+                                            "type": "string"
+                                        },
+                                        "studentEmail": {
+                                            "type": "string"
+                                        },
+                                        "studentResourceId": {
+                                            "type": "string"
+                                        },
+                                        "subscriptionId": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "actions": {
+                        "Calculate_new_quota_usage": {
+                            "runAfter": {
+                                "Initialize_Additional_Time": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Function",
+                            "inputs": {
+                                "body": {
+                                    "addHours": "@{variables('AdditionalTimeInHours')}",
+                                    "span": "@{body('Parse_user_info')?['properties']?['additionalUsageQuota']}"
+                                },
+                                "function": {
+                                    "id": "[resourceId('Microsoft.Web/sites/functions', variables('functionAppName'), 'Add')]"
+                                }
+                            }
+                        },
+                        "Call_Quota_Increase_api": {
+                            "runAfter": {
+                                "Verify_request_not_within_last_24_hours": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "body": {
+                                    "properties": {
+                                        "additionalUsageQuota": "@{body('Calculate_new_quota_usage')}"
+                                    }
+                                },
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['arm']['connectionId']"
+                                    }
+                                },
+                                "method": "put",
+                                "path": "/subscriptions/@{encodeURIComponent(variables('subscriptionId'))}/resourcegroups/@{encodeURIComponent(variables('resourceGroupName'))}/providers/@{encodeURIComponent('Microsoft.LabServices')}/@{encodeURIComponent('labaccounts/',variables('labAccountName'),'/labs/',variables('labName'),'/users/',variables('studentUserId'))}",
+                                "queries": {
+                                    "x-ms-api-version": "@variables('ApiVersion')"
+                                }
+                            }
+                        },
+                        "Get_records_for_last_request_information": {
+                            "runAfter": {
+                                "Calculate_new_quota_usage": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['azuretables']['connectionId']"
+                                    }
+                                },
+                                "method": "get",
+                                "path": "/Tables/@{encodeURIComponent('requestInfo')}/entities",
+                                "queries": {
+                                    "$filter": "PartitionKey eq '@{variables('studentUserId')}' and RowKey eq '@{triggerBody()?['labName']}'"
+                                }
+                            }
+                        },
+                        "Initialize_Additional_Time": {
+                            "runAfter": {
+                                "Initialize_ResourceProvider": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "AdditionalTimeInHours",
+                                        "type": "integer",
+                                        "value": 10
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_Api_Version": {
+                            "runAfter": {},
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "ApiVersion",
+                                        "type": "string",
+                                        "value": "2019-01-01-preview"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_ResourceProvider": {
+                            "runAfter": {
+                                "Parse_user_info": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "ResourceProvider",
+                                        "type": "string",
+                                        "value": "Microsoft.LabServices"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_labAccountName": {
+                            "runAfter": {
+                                "Initialize_resourceGroupName": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "labAccountName",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_labName": {
+                            "runAfter": {
+                                "Initialize_labAccountName": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "labName",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_lastRequest_entities_count": {
+                            "runAfter": {
+                                "Get_records_for_last_request_information": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "lastRequestEntityInfoCount",
+                                        "type": "integer",
+                                        "value": "@length(body('Get_records_for_last_request_information')?['value'])"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_resourceGroupName": {
+                            "runAfter": {
+                                "Initialize_subscriptionId": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "resourceGroupName",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_studentResourceId_array": {
+                            "runAfter": {
+                                "Initialize_studentUserId": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "studentResourceIdArray",
+                                        "type": "array"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_studentUserId": {
+                            "runAfter": {
+                                "Initialize_labName": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "studentUserId",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        },
+                        "Initialize_subscriptionId": {
+                            "runAfter": {
+                                "Initialize_Api_Version": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "InitializeVariable",
+                            "inputs": {
+                                "variables": [
+                                    {
+                                        "name": "subscriptionId",
+                                        "type": "string"
+                                    }
+                                ]
+                            }
+                        },
+                        "Parse_user_info": {
+                            "runAfter": {
+                                "Read_user_info_for_specified_lab": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ParseJson",
+                            "inputs": {
+                                "content": "@body('Read_user_info_for_specified_lab')",
+                                "schema": {
+                                    "properties": {
+                                        "id": {
+                                            "type": "string"
+                                        },
+                                        "location": {
+                                            "type": "string"
+                                        },
+                                        "name": {
+                                            "type": "string"
+                                        },
+                                        "properties": {
+                                            "properties": {
+                                                "additionalUsageQuota": {
+                                                    "type": "string"
+                                                },
+                                                "email": {
+                                                    "type": "string"
+                                                },
+                                                "familyName": {
+                                                    "type": "string"
+                                                },
+                                                "givenName": {
+                                                    "type": "string"
+                                                },
+                                                "latestRegistrationLinkEmailSent": {
+                                                    "type": "string"
+                                                },
+                                                "provisioningState": {
+                                                    "type": "string"
+                                                },
+                                                "registrationLinkEmailState": {
+                                                    "type": "string"
+                                                },
+                                                "registrationState": {
+                                                    "type": "string"
+                                                },
+                                                "tenantId": {
+                                                    "type": "string"
+                                                },
+                                                "totalUsage": {
+                                                    "type": "string"
+                                                },
+                                                "uniqueIdentifier": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        },
+                        "Read_user_info_for_specified_lab": {
+                            "runAfter": {
+                                "Set_variables_for_subscription_to_user": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['arm']['connectionId']"
+                                    }
+                                },
+                                "method": "get",
+                                "path": "/subscriptions/@{encodeURIComponent(variables('subscriptionId'))}/resourcegroups/@{encodeURIComponent(variables('resourceGroupName'))}/providers/@{encodeURIComponent('Microsoft.LabServices')}/@{encodeURIComponent('labaccounts/',variables('labAccountName'),'/labs/',variables('labName'),'/users/',variables('studentUserId'))}",
+                                "queries": {
+                                    "x-ms-api-version": "@variables('ApiVersion')"
+                                }
+                            }
+                        },
+                        "Response": {
+                            "runAfter": {
+                                "Update_last_request_for_student": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Response",
+                            "kind": "Http",
+                            "inputs": {
+                                "body": {
+                                    "message": "Quota increased for lab @{variables('labName')} for @{variables('studentUserId')}"
+                                },
+                                "statusCode": 200
+                            }
+                        },
+                        "Set_variables_for_subscription_to_user": {
+                            "actions": {
+                                "Get_array_of_userResourceId_parts": {
+                                    "runAfter": {},
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "studentResourceIdArray",
+                                        "value": "@split(triggerBody()?['studentResourceId'], '/')"
+                                    }
+                                },
+                                "Set_labAccountName_from_userResourceId": {
+                                    "runAfter": {
+                                        "Set_resourceGroupName_from_userResourceId": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "labAccountName",
+                                        "value": "@{variables('studentResourceIdArray')[8]}"
+                                    }
+                                },
+                                "Set_labName_from_userResourceId": {
+                                    "runAfter": {
+                                        "Set_labAccountName_from_userResourceId": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "labName",
+                                        "value": "@{variables('studentResourceIdArray')[10]}"
+                                    }
+                                },
+                                "Set_resourceGroupName_from_userResourceId": {
+                                    "runAfter": {
+                                        "Set_subscriptionId_from_userResourceId": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "resourceGroupName",
+                                        "value": "@{variables('studentResourceIdArray')[4]}"
+                                    }
+                                },
+                                "Set_subscriptionId_from_userResourceId": {
+                                    "runAfter": {
+                                        "Get_array_of_userResourceId_parts": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "subscriptionId",
+                                        "value": "@variables('studentResourceIdArray')[2]"
+                                    }
+                                },
+                                "set_studentId_from_userResourceid": {
+                                    "runAfter": {
+                                        "Set_labName_from_userResourceId": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "SetVariable",
+                                    "inputs": {
+                                        "name": "studentUserId",
+                                        "value": "@{variables('studentResourceIdArray')[12]}"
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Initialize_studentResourceId_array": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "else": {
+                                "actions": {
+                                    "Find_user_information_for_specified_student": {
+                                        "runAfter": {
+                                            "Parse_user_information_for_lab": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        "type": "Query",
+                                        "inputs": {
+                                            "from": "@body('Parse_user_information_for_lab')?['value']",
+                                            "where": "@equals(item()?['properties']?['email'], triggerBody()?['studentEmail'])"
+                                        }
+                                    },
+                                    "Get_array_of_userResourceId_Parts_2": {
+                                        "runAfter": {
+                                            "Parse_user_information_for_specified_student": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        "type": "SetVariable",
+                                        "inputs": {
+                                            "name": "studentResourceIdArray",
+                                            "value": "@split(first(body('Parse_user_information_for_specified_student'))['id'], '/')"
+                                        }
+                                    },
+                                    "Parse_user_information_for_lab": {
+                                        "runAfter": {
+                                            "Read_all_users_for_specified_lab": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        "type": "ParseJson",
+                                        "inputs": {
+                                            "content": "@body('Read_all_users_for_specified_lab')",
+                                            "schema": {
+                                                "properties": {
+                                                    "value": {
+                                                        "items": {
+                                                            "properties": {
+                                                                "id": {
+                                                                    "type": "string"
+                                                                },
+                                                                "location": {
+                                                                    "type": "string"
+                                                                },
+                                                                "name": {
+                                                                    "type": "string"
+                                                                },
+                                                                "properties": {
+                                                                    "properties": {
+                                                                        "email": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "familyName": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "givenName": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "latestOperationResult": {
+                                                                            "properties": {},
+                                                                            "type": "object"
+                                                                        },
+                                                                        "latestRegistrationLinkEmailSent": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "provisioningState": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "registrationLinkEmailState": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "registrationState": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "tenantId": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "totalUsage": {
+                                                                            "type": "string"
+                                                                        },
+                                                                        "uniqueIdentifier": {
+                                                                            "type": "string"
+                                                                        }
+                                                                    },
+                                                                    "type": "object"
+                                                                },
+                                                                "type": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "required": [
+                                                                "properties",
+                                                                "id",
+                                                                "name",
+                                                                "type",
+                                                                "location"
+                                                            ],
+                                                            "type": "object"
+                                                        },
+                                                        "type": "array"
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        }
+                                    },
+                                    "Parse_user_information_for_specified_student": {
+                                        "runAfter": {
+                                            "Find_user_information_for_specified_student": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        "type": "ParseJson",
+                                        "inputs": {
+                                            "content": "@body('Find_user_information_for_specified_student')",
+                                            "schema": {
+                                                "items": {
+                                                    "properties": {
+                                                        "id": {
+                                                            "type": "string"
+                                                        },
+                                                        "location": {
+                                                            "type": "string"
+                                                        },
+                                                        "name": {
+                                                            "type": "string"
+                                                        },
+                                                        "properties": {
+                                                            "properties": {
+                                                                "email": {
+                                                                    "type": "string"
+                                                                },
+                                                                "familyName": {
+                                                                    "type": "string"
+                                                                },
+                                                                "givenName": {
+                                                                    "type": "string"
+                                                                },
+                                                                "latestOperationResult": {
+                                                                    "properties": {},
+                                                                    "type": "object"
+                                                                },
+                                                                "latestRegistrationLinkEmailSent": {
+                                                                    "type": "string"
+                                                                },
+                                                                "provisioningState": {
+                                                                    "type": "string"
+                                                                },
+                                                                "registrationLinkEmailState": {
+                                                                    "type": "string"
+                                                                },
+                                                                "registrationState": {
+                                                                    "type": "string"
+                                                                },
+                                                                "tenantId": {
+                                                                    "type": "string"
+                                                                },
+                                                                "totalUsage": {
+                                                                    "type": "string"
+                                                                },
+                                                                "uniqueIdentifier": {
+                                                                    "type": "string"
+                                                                }
+                                                            },
+                                                            "type": "object"
+                                                        },
+                                                        "type": {
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "properties",
+                                                        "id",
+                                                        "name",
+                                                        "type",
+                                                        "location"
+                                                    ],
+                                                    "type": "object"
+                                                },
+                                                "type": "array"
+                                            }
+                                        }
+                                    },
+                                    "Read_all_users_for_specified_lab": {
+                                        "runAfter": {},
+                                        "type": "ApiConnection",
+                                        "inputs": {
+                                            "host": {
+                                                "connection": {
+                                                    "name": "@parameters('$connections')['arm']['connectionId']"
+                                                }
+                                            },
+                                            "method": "get",
+                                            "path": "/subscriptions/@{encodeURIComponent(triggerBody()?['subscriptionId'])}/resourcegroups/@{encodeURIComponent(triggerBody()?['resourceGroup'])}/providers/@{encodeURIComponent('Microsoft.LabServices')}/@{encodeURIComponent('labaccounts/',triggerBody()?['labAccountName'],'/labs/',triggerBody()?['labName'],'/users')}",
+                                            "queries": {
+                                                "x-ms-api-version": "@variables('ApiVersion')"
+                                            }
+                                        }
+                                    },
+                                    "Set_labAccountName": {
+                                        "runAfter": {
+                                            "Set_resourceGroupName": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        "type": "SetVariable",
+                                        "inputs": {
+                                            "name": "labAccountName",
+                                            "value": "@triggerBody()?['labAccountName']"
+                                        }
+                                    },
+                                    "Set_labName": {
+                                        "runAfter": {
+                                            "Set_labAccountName": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        "type": "SetVariable",
+                                        "inputs": {
+                                            "name": "labName",
+                                            "value": "@triggerBody()?['labName']"
+                                        }
+                                    },
+                                    "Set_resourceGroupName": {
+                                        "runAfter": {
+                                            "Set_subscriptionId": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        "type": "SetVariable",
+                                        "inputs": {
+                                            "name": "resourceGroupName",
+                                            "value": "@triggerBody()?['resourceGroup']"
+                                        }
+                                    },
+                                    "Set_studentId": {
+                                        "runAfter": {
+                                            "Set_labName": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        "type": "SetVariable",
+                                        "inputs": {
+                                            "name": "studentUserId",
+                                            "value": "@{variables('studentResourceIdArray')[12]}"
+                                        }
+                                    },
+                                    "Set_subscriptionId": {
+                                        "runAfter": {
+                                            "Get_array_of_userResourceId_Parts_2": [
+                                                "Succeeded"
+                                            ]
+                                        },
+                                        "type": "SetVariable",
+                                        "inputs": {
+                                            "name": "subscriptionId",
+                                            "value": "@triggerBody()?['subscriptionId']"
+                                        }
+                                    }
+                                }
+                            },
+                            "expression": {
+                                "and": [
+                                    {
+                                        "not": {
+                                            "equals": [
+                                                "@equals(triggerBody()?['studentResourceId'], null)",
+                                                "@true"
+                                            ]
+                                        }
+                                    }
+                                ]
+                            },
+                            "type": "If"
+                        },
+                        "Update_last_request_for_student": {
+                            "runAfter": {
+                                "Call_Quota_Increase_api": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "body": {
+                                    "lastRequestTime": "@{utcNow()}"
+                                },
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['azuretables']['connectionId']"
+                                    }
+                                },
+                                "method": "put",
+                                "path": "/Tables/@{encodeURIComponent('requestInfo')}/entities(PartitionKey='@{encodeURIComponent(variables('studentUserId'))}',RowKey='@{encodeURIComponent(variables('labName'))}')"
+                            }
+                        },
+                        "Verify_request_not_within_last_24_hours": {
+                            "actions": {
+                                "Condition_2": {
+                                    "actions": {},
+                                    "runAfter": {
+                                        "Parse_JSON": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "else": {
+                                        "actions": {
+                                            "Terminate": {
+                                                "runAfter": {
+                                                    "Too_soon_response": [
+                                                        "Succeeded"
+                                                    ]
+                                                },
+                                                "type": "Terminate",
+                                                "inputs": {
+                                                    "runError": {
+                                                        "code": "403"
+                                                    },
+                                                    "runStatus": "Failed"
+                                                }
+                                            },
+                                            "Too_soon_response": {
+                                                "runAfter": {},
+                                                "type": "Response",
+                                                "kind": "Http",
+                                                "inputs": {
+                                                    "body": {
+                                                        "message": "Request made too soon for lab @{triggerBody()?['labName']}.  Request will be allowed at @{convertFromUtc(addDays(body('Parse_JSON')?['lastRequestTime'], 1), 'Eastern Standard Time', 'f')} Eastern Standard Time."
+                                                    },
+                                                    "statusCode": 403
+                                                }
+                                            }
+                                        }
+                                    },
+                                    "expression": {
+                                        "and": [
+                                            {
+                                                "lessOrEquals": [
+                                                    "@addDays(body('Parse_JSON')?['lastRequestTime'],1)",
+                                                    "@utcNow()"
+                                                ]
+                                            }
+                                        ]
+                                    },
+                                    "type": "If"
+                                },
+                                "Parse_JSON": {
+                                    "runAfter": {},
+                                    "type": "ParseJson",
+                                    "inputs": {
+                                        "content": "@first(body('Get_records_for_last_request_information')?['value'])",
+                                        "schema": {
+                                            "properties": {
+                                                "PartitionKey": {
+                                                    "type": "string"
+                                                },
+                                                "RowKey": {
+                                                    "type": "string"
+                                                },
+                                                "lastRequestTime": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Initialize_lastRequest_entities_count": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "expression": {
+                                "and": [
+                                    {
+                                        "greater": [
+                                            "@variables('lastRequestEntityInfoCount')",
+                                            0
+                                        ]
+                                    }
+                                ]
+                            },
+                            "type": "If"
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {
+                            "arm": {
+                                "connectionId": "[resourceId('Microsoft.Web/connections', 'arm')]",
+                                "connectionName": "arm",
+                                "id": "[concat( subscription().id, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/arm')]"
+                            },
+                            "azuretables": {
+                                "connectionId": "[resourceId('Microsoft.Web/connections', 'azuretables')]",
+                                "connectionName": "azuretables",
+                                "id": "[concat(subscription().id, '/providers/Microsoft.Web/locations/', resourceGroup().location, '/managedApis/azuretables')]"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    ]
+}
