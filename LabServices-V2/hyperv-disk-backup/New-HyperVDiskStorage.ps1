@@ -4,10 +4,11 @@ param (
     [Parameter(Mandatory = $true)][String]$StorageAccountName,
     [Parameter(Mandatory = $false)][String]$Location,
     [Parameter(Mandatory = $false)][String[]]$InstructorEmails,
-    [Parameter(Mandatory = $false)][String]$InstructorRbacRoleName = "Storage Blob Data Reader",
-    [Parameter(Mandatory = $false)][String[]]$StudentEmails,
-    [Parameter(Mandatory = $false)][String]$StudentRbacRoleName = "Storage Blob Data Contributor"   
-)
+    [Parameter(Mandatory = $false)][String[]]$StudentEmails
+    )
+
+$InstructorRbacRoleName = "Storage Blob Data Reader"
+$StudentRbacRoleName = "Storage Blob Data Contributor" 
 
 function Get-AzADUserIdByEmail([string] $userEmail) {
     $userAdObject = $null
@@ -37,12 +38,13 @@ function Update-BlobRole(
     Write-Verbose "Role assignment $($roleAssignment.RoleAssignmentId) for $($roleAssignment.SignInName)."
 }
 
-$StorageAccountName = [Regex]::Replace($StorageAccountName, "[^a-zA-Z]", "").ToLower()
+$StorageAccountName = [Regex]::Replace($StorageAccountName, "[^a-zA-Z0-9]", "").ToLower()
 Write-Verbose "Storage Account Name: $StorageAccountName"
 
 #Determine resource group name
 if ([String]::IsNullOrWhiteSpace($ResourceGroupName)) {
     $ResourceGroupName = $StorageAccountName + "RG"
+    Write-Verbose "No resource group specified.  Using default resource group name: $ResourceGroupName"
 }
 Write-Verbose "Resource Group Name: $ResourceGroupName"
 
@@ -55,18 +57,33 @@ else {
 }
 Write-Verbose "Subscription Id: $SubscriptionId"
 
+#Verify resource group exists
+if(-not $(Get-AzResourceGroup -ResourceGroupName $ResourceGroupName)){
+    if ([String]::IsNullOrWhiteSpace($Location)){
+        New-AzResourceGroup -ResourceGroupName $ResourceGroupName -Location $Location
+    }else{
+        Write-Error "Couldn't create resource group '$ResourceGroupName' in  location '$Location'."
+    }
+}
+
 #Create storage account
 $storageContext = Get-AzStorageAccount -ResourceGroupName $ResourceGroupName -AccountName $StorageAccountName -ErrorAction SilentlyContinue
 if ($storageContext){
     Write-Host "Using existing storage account with the name '$StorageAccountName'."
+
 }else{
+    Write-Host "Creating storage account '$StorageAccountName' in $ResourceGroupName"
     if (-not [String]::IsNullOrWhiteSpace($Location)){
         $storageContext = New-AzStorageAccount -ResourceGroupName $ResourceGroupName -AccountName $StorageAccountName -Location $Location -SkuName Standard_GRS
-        Write-Host "Created storage account with the name '$StorageAccountName' in $RessourceGroupName."
+        Write-Host "Created storage account with the name '$StorageAccountName' in $ResourceGroupName."
     }else{
-        Write-Error "Could not create storage account $StorageAccountName in $RessourceGroupName.  Missing required parameter Location"
+        Write-Error "Could not create storage account $StorageAccountName in $ResourceGroupName.  Missing required parameter Location"
     }
 }
+
+# Enable versioning.
+Write-Host "Enabling version for storage account '$StorageAccountName' in $ResourceGroupName"
+Update-AzStorageBlobServiceProperty -ResourceGroupName $ResourceGroupName    -StorageAccountName $StorageAccountName  -IsVersioningEnabled $true
 
 #Set read permissions on acct for instructors
 foreach ($email in $InstructorEmails){
@@ -86,7 +103,7 @@ foreach ($email in $StudentEmails){
     #Alternatively, create container name based on the AAD ObjectId for the student
     #$studentContainerName = $adObjectId
 
-    $studentContainerName = "$ClassCode-$($email.Replace("@", "-").Replace(".", "-"))".ToLower()
+    $studentContainerName = "$($email.Replace("@", "-").Replace(".", "-"))".ToLower()
     $storageContainer = Get-AzStorageContainer  -Name $studentContainerName -ErrorAction SilentlyContinue 
     if (-not $storageContainer){
         $storageContainer = New-AzStorageContainer -Name $studentContainerName -Permission Off
