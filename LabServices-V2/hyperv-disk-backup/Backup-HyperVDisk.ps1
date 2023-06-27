@@ -3,7 +3,7 @@ param (
     [Parameter(Mandatory = $true)][string]$FilePath#,
     #[Parameter(Mandatory = $false)][string]$DestinationFileName
 )
-
+$ErrorActionPreference = 'Stop' 
 function Get-ExpectedContainerName(){
     #Alternatively, create container name based on the AAD ObjectId for the student
     $email = Get-AzContext | select -expand Account | select -expand Id
