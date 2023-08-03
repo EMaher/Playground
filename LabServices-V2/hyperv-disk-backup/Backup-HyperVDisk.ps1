@@ -12,7 +12,7 @@ function Get-ExpectedContainerName(){
 }
 function Get-ConfigurationSettings() {
     $settingsFilePath = Join-Path $PSScriptRoot "settings.json"
-    return Get-Content -Path $settingsFilePath | ConvertFrom-Json  
+    return Get-Content -Path $settingsFilePath -ErrorAction SilentlyContinue| ConvertFrom-Json  
 }
 
 #Verify files exists and isn't in use
