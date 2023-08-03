@@ -45,7 +45,8 @@ if (-not $StorageAccountName){
 #Note, can't verify existence because student's only have access to their containers.
 
 #Set context to upload file
-$storageContext = New-AzStorageContext -UseConnectedAccount -BlobEndpoint "https://$StorageAccountName.blob.core.windows.net/"
+#$storageContext = New-AzStorageContext -UseConnectedAccount -BlobEndpoint "https://$StorageAccountName.blob.core.windows.net/"
+$storageContext = New-AzStorageContext -StorageAccountName $StorageAccountName
 
 #Verify container exists
 $ContainerName = Get-ExpectedContainerName
