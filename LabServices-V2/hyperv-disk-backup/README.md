@@ -55,14 +55,14 @@
     ```
 
 2. Update configuration is settings.json.  
-    
+
     - Storage account name will be one created in section above.  
     - ClassCode is prefix that will be used for backups in the case student has multiple classes that use nested virtualization. No invalid filename characters allowed.
 
     ```json
    {
        "ClassCode": "CS101",
-       "StorageAccount": "mystorageaccount"
+       "StorageAccountName": "mystorageaccount"
    }
     ```
 

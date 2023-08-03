@@ -1,4 +1,4 @@
 {
     "ClassCode": "CS101",
-    "StorageAccount": "mystorageaccount"
+    "StorageAccountName": "mystorageaccount"
 }

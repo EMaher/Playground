@@ -1,15 +1,15 @@
 [CmdletBinding()]
 param (
-    [Parameter(Mandatory = $true)][string]$FilePath#,
-    #[Parameter(Mandatory = $false)][string]$DestinationFileName
+    [Parameter(Mandatory = $true)][string]$FilePath,
+    [Parameter(Mandatory = $false)][string]$StorageAccountName
 )
 $ErrorActionPreference = 'Stop' 
+
+
 function Get-ExpectedContainerName(){
-    #Alternatively, create container name based on the AAD ObjectId for the student
-    $email = Get-AzContext | select -expand Account | select -expand Id
+    $email = Get-AzContext | Select-Object -expand Account | Select-Object -expand Id
     return "$($email.Replace('@', "-").Replace(".", "-"))".ToLower()
 }
-
 function Get-ConfigurationSettings() {
     $settingsFilePath = Join-Path $PSScriptRoot "settings.json"
     return Get-Content -Path $settingsFilePath | ConvertFrom-Json  
@@ -30,14 +30,19 @@ try{
 }
 
 $Settings = Get-ConfigurationSettings
-if (-not $Settings.ClassCode -or -not $Settings.StorageAccount){
-    Write-Error "settings.json file must specify ClassCode and StorageAccount."
+if (-not $Settings.ClassCode){
+    Write-Verbose "settings.json file didn't specify a ClassCode."
 }
 
 #Get Storage account name
-$StorageAccountName = $Settings.StorageAccount
+if (-not $StorageAccountName){
+    if (-not $Settings.StorageAccountName){
+        Write-Error "Must specify 'StroageAccountName' paramter or have settings.json that specifies StorageAccountName."
+    }else{
+        $StorageAccountName = $Settings.StorageAccountName
+    }
+}
 #Note, can't verify existence because student's only have access to their containers.
-
 
 #Set context to upload file
 $storageContext = New-AzStorageContext -UseConnectedAccount -BlobEndpoint "https://$StorageAccountName.blob.core.windows.net/"
@@ -51,9 +56,12 @@ if (-not $container){
 
 #Calculate blob name
 $blobName = "$($Settings.ClassCode)-$([System.IO.Path]::GetFileName($FilePath))"
+if(-not ([String]::IsNullOrWhiteSpace($Settings.ClassCode)) ){
+    $blobName = "$($Settings.ClassCode)-$($blobName)"
+}
 Write-Verbose "Destination blob name: $blobName"
 
-Write-Host "Uploading file $([System.IO.Path]::GetFileName($FilePath)) to $ContainerName"
+Write-Host "Uploading file $([System.IO.Path]::GetFileName($FilePath)) to $StorageAccount/$ContainerName"
 $timer = [System.Diagnostics.Stopwatch]::StartNew()
 Set-AzStorageBlobContent -Container $ContainerName -File $FilePath -Blob $blobName -Context $storageContext -Force
 $timer.Stop()

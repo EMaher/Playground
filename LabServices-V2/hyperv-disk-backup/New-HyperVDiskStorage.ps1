@@ -7,6 +7,8 @@ param (
     [Parameter(Mandatory = $false)][String[]]$StudentEmails
     )
 
+$ErrorActionPreference = 'Stop' 
+
 $InstructorRbacRoleName = "Storage Blob Data Reader"
 $StudentRbacRoleName = "Storage Blob Data Contributor" 
 
@@ -38,6 +40,10 @@ function Update-BlobRole(
     Write-Verbose "Role assignment $($roleAssignment.RoleAssignmentId) for $($roleAssignment.SignInName)."
 }
 
+function Get-StudentContainerName($Email){
+    return "$($Email.Replace('@', "-").Replace(".", "-"))".ToLower()
+}
+
 $StorageAccountName = [Regex]::Replace($StorageAccountName, "[^a-zA-Z0-9]", "").ToLower()
 Write-Verbose "Storage Account Name: $StorageAccountName"
 
@@ -58,11 +64,11 @@ else {
 Write-Verbose "Subscription Id: $SubscriptionId"
 
 #Verify resource group exists
-if(-not $(Get-AzResourceGroup -ResourceGroupName $ResourceGroupName)){
-    if ([String]::IsNullOrWhiteSpace($Location)){
+if(-not $(Get-AzResourceGroup -ResourceGroupName $ResourceGroupName -ErrorAction SilentlyContinue)){
+    if (-not [String]::IsNullOrWhiteSpace($Location)){
         New-AzResourceGroup -ResourceGroupName $ResourceGroupName -Location $Location
     }else{
-        Write-Error "Couldn't create resource group '$ResourceGroupName' in  location '$Location'."
+        Write-Error "Couldn't create resource group '$ResourceGroupName'.  Must specify 'Location' paramter."
     }
 }
 
@@ -103,7 +109,7 @@ foreach ($email in $StudentEmails){
     #Alternatively, create container name based on the AAD ObjectId for the student
     #$studentContainerName = $adObjectId
 
-    $studentContainerName = "$($email.Replace("@", "-").Replace(".", "-"))".ToLower()
+    $studentContainerName = Get-StudentContainerName -Email $email
     $storageContainer = Get-AzStorageContainer  -Name $studentContainerName -ErrorAction SilentlyContinue 
     if (-not $storageContainer){
         $storageContainer = New-AzStorageContainer -Name $studentContainerName -Permission Off
@@ -112,6 +118,7 @@ foreach ($email in $StudentEmails){
         Write-Host "Found container $($storageContainer.Name) for $email"
     }
     
+    Write-Host "Updating permissions for student's container."
     Update-BlobRole -UserAdObject $adObjectId -RoleName $StudentRbacRoleName -Scope "$($storageContext.id)/blobServices/default/containers/$studentContainerName" -ErrorAction Continue
     Write-Host "Using container $($storageContainer.Name) for $email.  User has '$StudentRbacRoleName' access on the container only."
 }
