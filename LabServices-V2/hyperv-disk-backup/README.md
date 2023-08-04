@@ -1,6 +1,7 @@
 # Backup System for Hyper-V Disks
 
 ## Infrastructure
+
 1. Open PowerShell window with 'Az' module installed. (Use `Install-Module Az` to manually install.)  You can also use [Azure Cloud Shell](https://shell.azure.com).
 
 2. Login
@@ -8,14 +9,14 @@
    ```powershell
    Login-AzAccount
    ```
-   
+
 3. Verify correct subscription is selected.  If not change context.
 
    ```powershell
    #Get current context.  All future commands will use this
    Get-AzContext
    ```
-   
+
    If context is not as desired, switch subscriptions.
 
    ```powershell

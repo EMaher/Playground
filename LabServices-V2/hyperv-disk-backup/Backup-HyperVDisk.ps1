@@ -1,3 +1,5 @@
+#Requires -Modules @{ ModuleName="Az"; ModuleVersion="10.0" }  
+
 [CmdletBinding()]
 param (
     [Parameter(Mandatory = $true)][string]$FilePath,
@@ -59,8 +61,8 @@ Write-Verbose "StorageAccountName: '$StorageAccountName'"
 #Note, can't verify existence because student's only have access to their containers.
 
 #Set context to upload file
-#$storageContext = New-AzStorageContext -UseConnectedAccount -BlobEndpoint "https://$StorageAccountName.blob.core.windows.net/"
-$storageContext = New-AzStorageContext -StorageAccountName $StorageAccountName
+$storageContext = New-AzStorageContext -UseConnectedAccount -BlobEndpoint "https://$StorageAccountName.blob.core.windows.net/"
+#$storageContext = New-AzStorageContext -StorageAccountName $StorageAccountName
 
 #Verify container exists
 $containerName = Get-ExpectedContainerName
