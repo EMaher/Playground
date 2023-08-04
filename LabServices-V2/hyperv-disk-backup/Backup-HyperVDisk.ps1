@@ -6,13 +6,26 @@ param (
 $ErrorActionPreference = 'Stop' 
 
 
-function Get-ExpectedContainerName(){
-    $email = Get-AzContext | Select-Object -expand Account | Select-Object -expand Id
-    return "$($email.Replace('@', "-").Replace(".", "-"))".ToLower()
-}
 function Get-ConfigurationSettings() {
     $settingsFilePath = Join-Path $PSScriptRoot "settings.json"
     return Get-Content -Path $settingsFilePath -ErrorAction SilentlyContinue| ConvertFrom-Json  
+}
+
+function Get-CurrentUserEmail()
+{
+    $token = Get-AzAccessToken -ResourceUrl "https://graph.microsoft.com/" | Select-Object -ExpandProperty Token
+    $headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
+    $headers.Add("Authorization", "Bearer $token")
+
+    $response = Invoke-RestMethod 'https://graph.microsoft.com/v1.0/me' -Method 'GET' -Headers $headers
+    #$response | ConvertTo-Json
+    return $response | Select-Object -ExpandProperty mail
+}
+
+function Get-ExpectedContainerName(){
+    #$email = Get-AzContext | Select-Object -expand Account | Select-Object -expand Id
+    $email = Get-CurrentUserEmail
+    return "$($email.Replace('@', "-").Replace(".", "-"))".ToLower().Trim()
 }
 
 #Verify files exists and isn't in use
@@ -37,11 +50,12 @@ if (-not $Settings.ClassCode){
 #Get Storage account name
 if (-not $StorageAccountName){
     if (-not $Settings.StorageAccountName){
-        Write-Error "Must specify 'StroageAccountName' paramter or have settings.json that specifies StorageAccountName."
+        Write-Error "Must specify 'StorageAccountName' parameter or have settings.json that specifies StorageAccountName."
     }else{
         $StorageAccountName = $Settings.StorageAccountName
     }
 }
+Write-Verbose "StorageAccountName: '$StorageAccountName'"
 #Note, can't verify existence because student's only have access to their containers.
 
 #Set context to upload file
@@ -49,25 +63,25 @@ if (-not $StorageAccountName){
 $storageContext = New-AzStorageContext -StorageAccountName $StorageAccountName
 
 #Verify container exists
-$ContainerName = Get-ExpectedContainerName
-$container =  Get-AzStorageContainer -Name $ContainerName -Context $storageContext 
+$containerName = Get-ExpectedContainerName
+Write-Verbose "ContainerName: '$containerName'"
+$container =  Get-AzStorageContainer -Name $containerName -Context $storageContext -ErrorAction SilentlyContinue
 if (-not $container){
-    Write-Error "Couldn't find/access container '$ContainerName' in storage account '$StorageAccountName'"
+     Write-Error "Couldn't find/access container '$containerName' in storage account '$StorageAccountName'"
 }
-
+ 
 #Calculate blob name
-$blobName = "$($Settings.ClassCode)-$([System.IO.Path]::GetFileName($FilePath))"
+$blobName = [System.IO.Path]::GetFileName($FilePath)
 if(-not ([String]::IsNullOrWhiteSpace($Settings.ClassCode)) ){
     $blobName = "$($Settings.ClassCode)-$($blobName)"
 }
 Write-Verbose "Destination blob name: $blobName"
 
-Write-Host "Uploading file $([System.IO.Path]::GetFileName($FilePath)) to $StorageAccount/$ContainerName"
+Write-Host "Uploading file $([System.IO.Path]::GetFileName($FilePath)) to $StorageAccountName/$containerName"
 $timer = [System.Diagnostics.Stopwatch]::StartNew()
-Set-AzStorageBlobContent -Container $ContainerName -File $FilePath -Blob $blobName -Context $storageContext -Force
+Set-AzStorageBlobContent -Container $containerName -File $FilePath -Blob $blobName -Context $storageContext -Force | Out-Null
 $timer.Stop()
-
-$blob = Get-AzStorageBlob -Container $ContainerName -Blob $blobName -Context $storageContext
+$blob = Get-AzStorageBlob -Container $containerName -Blob $blobName -Context $storageContext
 if ($blob){
     Write-Host "Success! '$FilePath' backed up as '$blobname' (version  $($blob.VersionId))."
     Write-Host "Upload operation took $($timer.Elapsed.TotalMinutes) minutes."
