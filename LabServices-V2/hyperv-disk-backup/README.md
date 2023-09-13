@@ -2,32 +2,31 @@
 
 ## Infrastructure
 
-1. Open PowerShell window with 'Az' module installed. (Use `Install-Module Az` to manually install.)  You can also use [Azure Cloud Shell](https://shell.azure.com).
+1. Open PowerShell window with 'Az' module installed.  You can also use [Azure Cloud Shell](https://shell.azure.com).
 
-2. Login
+   ```powershell
+   Install-Module Az
+   ```
+
+3. Login
 
    ```powershell
    Login-AzAccount
    ```
 
-3. Verify correct subscription is selected.  If not change context.
+4. Verify correct subscription is the current context.  All future commands will use this.  If not change context.
 
    ```powershell
-   #Get current context.  All future commands will use this
    Get-AzContext
    ```
 
-   If context is not as desired, switch subscriptions.
+   If context is not as desired, switch subscriptions.  Start by listing all available subscriptions. 
 
    ```powershell
-   #List subscriptions
-   Get-AzSubscriptions
-
-   #Set current subscription
-   Set-AzSubscription -Subscription 111111111111-1111-1111-11111111
+   Set-AzContext -Subscription 11111111-1111-1111-1111-111111111111
    ```
-
-4. Create  resource group, if not done already.
+   
+5. Create  resource group, if not done already.
 
    ```powershell
     New-AzResourceGroup -Name "<ResourceGroupName>" -Location "<location>"
@@ -35,7 +34,7 @@
 
    To get a list of possible values for location of the resource group, run `Get-AzLocation | Join-String -Property Location  -Separator ", "`.
 
-5. Download and run setup script
+6. Download and run setup script
 
     ```powershell
     Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EMaher/Playground/master/LabServices-V2/hyperv-disk-backup/New-HyperVDiskStorage.ps1" -OutFile "New-HyperVDiskStorage.ps1"
@@ -43,7 +42,7 @@
     ./New-HyperVDiskStorage.ps1 -ResourceGroupName "<ResourceGroupName>" -StorageAccountName "<StorageAccountName>" -Location "<location>" -InstructorEmails @('email1@myschool.com', 'email2@myschool.com') -StudentEmails @('student1@myschool.com', 'student2@myschool.com')
     ```
 
-6. Save storage account name
+7. Save storage account name
 
 ## Template VM
 
