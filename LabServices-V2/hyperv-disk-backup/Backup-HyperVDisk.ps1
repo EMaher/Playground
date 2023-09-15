@@ -1,5 +1,4 @@
-#Requires -Modules @{ ModuleName="Az"; ModuleVersion="10.0" }  
-
+ 
 [CmdletBinding()]
 param (
     [Parameter(Mandatory = $true)][string]$FilePath,
@@ -60,6 +59,18 @@ if (-not $StorageAccountName){
 Write-Verbose "StorageAccountName: '$StorageAccountName'"
 #Note, can't verify existence because student's only have access to their containers.
 
+$azContext = Get-AzContext
+$azSavedContextPath = Join-Path $PSScriptRoot "context.json"
+if (-not $azContext){
+    $azContext = Import-AzContext -Path $azSavedContextPath -ErrorAction SilentlyContinue
+    if (-not $azContext){
+        Connect-AzAccount
+    }
+}
+if (-not $(Test-Path $azSavedContextPath)){
+    Save-AzContext -Path $azSavedContextPath
+}
+
 #Set context to upload file
 $storageContext = New-AzStorageContext -UseConnectedAccount -BlobEndpoint "https://$StorageAccountName.blob.core.windows.net/"
 #$storageContext = New-AzStorageContext -StorageAccountName $StorageAccountName
@@ -89,4 +100,4 @@ if ($blob){
     Write-Host "Upload operation took $($timer.Elapsed.TotalMinutes) minutes."
 }else{
     Write-Warning "Unable to verify disk back up."
-} 
+}
