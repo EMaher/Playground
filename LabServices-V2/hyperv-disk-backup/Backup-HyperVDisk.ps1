@@ -23,10 +23,16 @@ function Get-CurrentUserEmail()
     return $response | Select-Object -ExpandProperty mail
 }
 
-function Get-ExpectedContainerName(){
-    #$email = Get-AzContext | Select-Object -expand Account | Select-Object -expand Id
-    $email = Get-CurrentUserEmail
-    return "$($email.Replace('@', "-").Replace(".", "-"))".ToLower().Trim()
+function Get-ExpectedContainerName([string]$TermCode, [string]$Email){
+    $containerName =  "$($Email.Replace('@', "-").Replace(".", "-"))".ToLower().Trim()
+   if (-not [sting]::IsNullOrEmpty($TermCode)){
+       $containerName = "$($TermCode)-$($containerName)"
+   }
+
+   #container names must be 63 characters or less
+   $containerName.Substring(0, [Math]::Min($containerName.Length, 63))
+
+   return $containerName
 }
 
 #Verify files exists and isn't in use
@@ -46,6 +52,9 @@ try{
 $Settings = Get-ConfigurationSettings
 if (-not $Settings.ClassCode){
     Write-Verbose "settings.json file didn't specify a ClassCode."
+}
+if (-not $Settings.TermCode){
+    Write-Verbose "settings.json file didn't specify a TermCode"
 }
 
 #Get Storage account name
@@ -76,7 +85,7 @@ $storageContext = New-AzStorageContext -UseConnectedAccount -BlobEndpoint "https
 #$storageContext = New-AzStorageContext -StorageAccountName $StorageAccountName
 
 #Verify container exists
-$containerName = Get-ExpectedContainerName
+$containerName = Get-ExpectedContainerName -Email $(Get-CurrentUserEmail) -TermCode $Settings.TermCode
 Write-Verbose "ContainerName: '$containerName'"
 $container =  Get-AzStorageContainer -Name $containerName -Context $storageContext -ErrorAction SilentlyContinue
 if (-not $container){
@@ -86,7 +95,7 @@ if (-not $container){
 #Calculate blob name
 $blobName = [System.IO.Path]::GetFileName($FilePath)
 if(-not ([String]::IsNullOrWhiteSpace($Settings.ClassCode)) ){
-    $blobName = "$($Settings.ClassCode)-$($blobName)"
+    $blobName = "$($Settings.ClassCode)/$($blobName)"
 }
 Write-Verbose "Destination blob name: $blobName"
 

@@ -40,8 +40,16 @@ function Update-BlobRole(
     Write-Verbose "Role assignment $($roleAssignment.RoleAssignmentId) for $($roleAssignment.SignInName)."
 }
 
-function Get-StudentContainerName($Email){
-    return "$($Email.Replace('@', "-").Replace(".", "-"))".ToLower()
+function Get-ExpectedContainerName([string]$TermCode, [string]$Email){
+    $containerName =  "$($Email.Replace('@', "-").Replace(".", "-"))".ToLower().Trim()
+   if (-not [sting]::IsNullOrEmpty($TermCode)){
+       $containerName = "$($TermCode)-$($containerName)"
+   }
+
+   #container names must be 63 characters or less
+   $containerName.Substring(0, [Math]::Min($containerName.Length, 63))
+
+   return $containerName
 }
 
 $StorageAccountName = [Regex]::Replace($StorageAccountName, "[^a-zA-Z0-9]", "").ToLower()
@@ -109,7 +117,7 @@ foreach ($email in $StudentEmails){
     #Alternatively, create container name based on the AAD ObjectId for the student
     #$studentContainerName = $adObjectId
 
-    $studentContainerName = Get-StudentContainerName -Email $email
+    $studentContainerName = Get-ExpectedContainerName -Email $email -TermCode $TermCode
     $storageContainer = Get-AzStorageContainer  -Name $studentContainerName -ErrorAction SilentlyContinue 
     if (-not $storageContainer){
         $storageContainer = New-AzStorageContainer -Name $studentContainerName -Permission Off
