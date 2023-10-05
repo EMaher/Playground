@@ -6,17 +6,26 @@ param (
 )
 $ErrorActionPreference = 'Stop' 
 
-Import-Module ./HyperVBackup.psm1
+Import-Module $(Join-Path $PSScriptRoot "HyperVBackup.psm1")
 
 $Settings = New-BackupSetting
 
-
-#TODO: Create collection for files to upload
-#- if Path specified, use that.  Create list.
-#- if Path not specified, Read search directories from settings and create list
+# Get file(s) to upload
+$PathList = $null
+if ($Path){
+    $PathList = @($Path)
+}else{
+    $PathList = $Settings.SearchDirectories
+}
+if(-not $PathList){
+    Write-Error "Must specify 'Path' parameter or have settings.json that specifies SearchDirectories."
+}else{
+    Write-Verbose "Path(s) specified: $($PathList)"
+}
 
 
 #Get Storage account name
+# Note, can't verify storage account existence because student's only have access to their containers.
 if (-not $StorageAccountName){
     if (-not $Settings.StorageAccountName){
         Write-Error "Must specify 'StorageAccountName' parameter or have settings.json that specifies StorageAccountName."
@@ -25,19 +34,9 @@ if (-not $StorageAccountName){
     }
 }
 Write-Verbose "StorageAccountName: '$StorageAccountName'"
-#Note, can't verify storage account existence because student's only have access to their containers.
 
-$azContext = Get-AzContext
-$azSavedContextPath = Join-Path $PSScriptRoot "context.json"
-if (-not $azContext){
-    $azContext = Import-AzContext -Path $azSavedContextPath -ErrorAction SilentlyContinue
-    if (-not $azContext){
-        Connect-AzAccount
-    }
-}
-if (-not $(Test-Path $azSavedContextPath)){
-    Save-AzContext -Path $azSavedContextPath
-}
+Resolve-AzContext
+Export-AzContext -Force
 
 #Set context to upload file
 $storageContext = New-AzStorageContext -UseConnectedAccount -BlobEndpoint "https://$($StorageAccountName).blob.core.windows.net/"
@@ -50,16 +49,17 @@ if (-not $container){
      Write-Error "Couldn't find/access container '$($containerName)' in storage account '$($StorageAccountName)'"
 }
  
-#TODO: change blobNameMappies call to iterate over Path list created above
+#Calculate blob names
+$blobNameMappings = New-Object "System.Collections.ArrayList"
+foreach ($tempPath in $PathList){
+    $blobNameMappings.AddRange(($(Get-BlobNameMapping -Path $tempPath -ClassCode $Settings.ClassCode)))
+}
 
-#Calculate blob name
-$blobNameMappings = @(Get-BlobNameMapping -Path $Path)
-
-
+#Upload files
 foreach ($blobNameMapping in $blobNameMappings){
 
     Write-Host @"
-Uploading file $($blobNameMapping.LocalFilePath.Name) 
+Uploading file $($blobNameMapping.Name) 
     Origin: $($blobNameMapping.LocalFilePath)
     Destination: $($StorageAccountName)/$($containerName)/$($blobNameMapping.BlobName)
 "@
@@ -68,7 +68,10 @@ Uploading file $($blobNameMapping.LocalFilePath.Name)
     if(Test-FileReady -FilePath $blobNameMapping.LocalFilePath){
 
         $timer = [System.Diagnostics.Stopwatch]::StartNew()
-        Set-AzStorageBlobContent -Container $containerName -File $blobNameMapping.LocalFilePath -Blob $blobNameMapping.BlobName -Context $storageContext -Force | Out-Null
+        Set-AzStorageBlobContent -Container $containerName `
+            -File $blobNameMapping.LocalFilePath `
+            -Blob $blobNameMapping.BlobName `
+            -Context $storageContext -Force | Out-Null
         $timer.Stop()
 
         $blob = Get-AzStorageBlob -Container $containerName -Blob $blobName -Context $storageContext

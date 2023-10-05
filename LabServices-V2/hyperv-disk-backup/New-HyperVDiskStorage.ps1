@@ -9,23 +9,10 @@ param (
 
 $ErrorActionPreference = 'Stop' 
 
+Import-Module $(Join-Path $PSScriptRoot "HyperVBackup.psm1")
+
 $InstructorRbacRoleName = "Storage Blob Data Reader"
 $StudentRbacRoleName = "Storage Blob Data Contributor" 
-
-function Get-AzADUserIdByEmail([string] $userEmail) {
-    $userAdObject = $null
-    $userAdObject = Get-AzADUser -UserPrincipalName $email.ToString().Trim() -ErrorAction SilentlyContinue
-    if (-not $userAdObject) {
-        $userAdObject = Get-AzADUser -Mail $email.ToString().Trim() -ErrorAction SilentlyContinue
-    }
-
-    if (-not $userAdObject){
-        Write-Error "Unable to find object for user with email $userEmail"
-    }else{
-        Write-Verbose "Found id $($UserAdObject.Id) for email $userEmail"
-        return $userAdObject.Id
-    }
-}
 
 function Update-BlobRole(
     [Parameter(Mandatory=$true)][guid] $UserAdObjectId, 
@@ -38,18 +25,6 @@ function Update-BlobRole(
         $roleAssignment = New-AzRoleAssignment -ObjectId $UserAdObjectId -RoleDefinitionName $RoleName -Scope $scope               
     }
     Write-Verbose "Role assignment $($roleAssignment.RoleAssignmentId) for $($roleAssignment.SignInName)."
-}
-
-function Get-ExpectedContainerName([string]$TermCode, [string]$Email){
-    $containerName =  "$($Email.Replace('@', "-").Replace(".", "-"))".ToLower().Trim()
-   if (-not [sting]::IsNullOrEmpty($TermCode)){
-       $containerName = "$($TermCode)-$($containerName)"
-   }
-
-   #container names must be 63 characters or less
-   $containerName.Substring(0, [Math]::Min($containerName.Length, 63))
-
-   return $containerName
 }
 
 $StorageAccountName = [Regex]::Replace($StorageAccountName, "[^a-zA-Z0-9]", "").ToLower()
@@ -95,9 +70,14 @@ if ($storageContext){
     }
 }
 
+# Change the storage account tier to cool
+#   See https://learn.microsoft.com/azure/storage/blobs/storage-blob-storage-tiers
+#   for more information about storage tiers.
+Set-AzStorageAccount -ResourceGroupName $rgName -Name $accountName -AccessTier Cool
+
 # Enable versioning.
 Write-Host "Enabling version for storage account '$StorageAccountName' in $ResourceGroupName"
-Update-AzStorageBlobServiceProperty -ResourceGroupName $ResourceGroupName    -StorageAccountName $StorageAccountName  -IsVersioningEnabled $true
+Update-AzStorageBlobServiceProperty -ResourceGroupName $ResourceGroupName   -StorageAccountName $StorageAccountName  -IsVersioningEnabled $true
 
 #Set read permissions on acct for instructors
 foreach ($email in $InstructorEmails){
@@ -110,12 +90,9 @@ $storageContext | Set-AzCurrentStorageAccount | Out-Null
 #Create container for each student
 #Set r/w permissions for each student on their container
 foreach ($email in $StudentEmails){
-    Write-Host "Creating container for $email."
+    Write-Host "Verifying container status.\n\tEmail: $($email)\n\tTerm: $($TermCode)."
 
     $adObjectId = Get-AzADUserIdByEmail -userEmail $email
-
-    #Alternatively, create container name based on the AAD ObjectId for the student
-    #$studentContainerName = $adObjectId
 
     $studentContainerName = Get-ExpectedContainerName -Email $email -TermCode $TermCode
     $storageContainer = Get-AzStorageContainer  -Name $studentContainerName -ErrorAction SilentlyContinue 
