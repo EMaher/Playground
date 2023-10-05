@@ -49,28 +49,32 @@ function Get-CurrentUserEmail()
 #***************** Container related ********************
 
 function Test-FileReady([string] $FilePath){
-    $FilePath = Resolve-Path $FilePath
+    $returnVal = $true
+    $FilePath = Resolve-Path $FilePath -ErrorAction Continue
     if(-not $(Test-Path -Path $FilePath)){
-        Write-Error "Couldn't find file $FilePath"
+        Write-Verbose "Couldn't find file $($FilePath)"
+        $returnVal =  $false
     }else{
         try{
             $fs = [System.IO.File]::Open($FilePath,'Open','ReadWrite')
         }catch{
-            Write-Error "Can't upload file.  $($FilePath) in use."
+            Write-Verbose "$($FilePath) in use."
+            $returnVal = $false
         }finally{
             $fs.Close()
             $fs.Dispose()
         }
     }
+    return $returnVal
 }
 
-Get-BlobName([string] $Path, [string] $ClassCode){
-    $blobNames = New-Object "System.Collections.Generic.List[String]"
+Get-BlobNameMapping([string] $Path, [string] $ClassCode){
+    $blobNameMappings = New-Object "System.Collections.ArrayList"
 
     $Path = Resolve-Path $Path
 
     if(-not $(Test-Path -Path $Path)){
-        Write-Error "Couldn't find path $Path"
+        Write-Warning "Couldn't find path $Path"
         return
     }
 
@@ -80,21 +84,23 @@ Get-BlobName([string] $Path, [string] $ClassCode){
     }
 
     if (Test-Path -Path $Path -PathType Leaf){
-        $blobNames.Add("$(prefix)$($Path | Select-Object -Expand Name)")
+        $blobNameMappings.Add([PSCustomObject]@{"Name"=$Path.Name;"LocalFilePath"=$Path; "BlobName"="$(prefix)$($Path | Select-Object -Expand Name)"})
     }else{
         $files = Get-ChildItem $Path -Recurse -File
         foreach($file in $files){
-            $file = $file.Replace($($Path | Select-Object -Expand FullName),"").Replace("\", "/").Trim("/")
-            $blobNames.Add("$($prefix)$(file)")
+            $fileFullName = $file | Select-Object -ExpandProperty FullPath
+            $fileName = $file | Select-Object -ExpandProperty Name
+            $fileRelativePath = $file.Replace($Path, $($Path | Select-Object -ExpandProperty FullPath),"").Replace("\", "/").Trim("/")
+            $blobNameMappings.Add([PSCustomObject]@{"Name"=$fileName; "LocalFilePath"=$fileFullName; "BlobName"="$($prefix)$($fileRelativePath)"})
         }
     }
 
-    return $blobNames
+    return $blobNameMappings
 }
 
 function Get-ExpectedContainerName([string]$TermCode, [string]$Email){
     $containerName =  "$($Email.Replace('@', "-").Replace(".", "-"))".ToLower().Trim()
-   if (-not [sting]::IsNullOrEmpty($TermCode)){
+   if (-not [string]::IsNullOrEmpty($TermCode)){
        $containerName = "$($TermCode)-$($containerName)"
    }
 
@@ -107,4 +113,4 @@ function Get-ExpectedContainerName([string]$TermCode, [string]$Email){
 Export-ModuleMember -Function New-BackupSetting
 Export-ModuleMember -Function Get-CurrentUserEmail
 Export-ModuleMember -Function Get-ExpectedContainerName
-Export-ModuleMember -Function Get-BlobName
+Export-ModuleMember -Function Get-BlobNameMapping

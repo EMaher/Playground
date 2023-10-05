@@ -1,17 +1,19 @@
  
 [CmdletBinding()]
 param (
-    [Parameter(Mandatory = $true)][string]$FilePath,
+    [Parameter(Mandatory = $true)][string]$Path,
     [Parameter(Mandatory = $false)][string]$StorageAccountName
 )
 $ErrorActionPreference = 'Stop' 
 
 Import-Module ./HyperVBackup.psm1
 
-#Verify files exists and isn't in use
-Test-FileReady -FilePath $FilePath
-
 $Settings = New-BackupSetting
+
+
+#TODO: Create collection for files to upload
+#- if Path specified, use that.  Create list.
+#- if Path not specified, Read search directories from settings and create list
 
 
 #Get Storage account name
@@ -48,25 +50,37 @@ if (-not $container){
      Write-Error "Couldn't find/access container '$($containerName)' in storage account '$($StorageAccountName)'"
 }
  
-#TODO: Change Get-BlobName to return tuples of FileNames and Target Names
-#TODO: Add search directories to settings.
+#TODO: change blobNameMappies call to iterate over Path list created above
 
 #Calculate blob name
-$blobNames = @(Get-BlobName)
-Write-Verbose "Destination blob name: $blobName"
+$blobNameMappings = @(Get-BlobNameMapping -Path $Path)
 
-foreach ($blobName in $blobNames){
 
-    Write-Host "Uploading file $([System.IO.Path]::GetFileName($FilePath)) to $($StorageAccountName)/$($containerName)"
-    $timer = [System.Diagnostics.Stopwatch]::StartNew()
-    Set-AzStorageBlobContent -Container $containerName -File $FilePath -Blob $blobName -Context $storageContext -Force | Out-Null
-    $timer.Stop()
-    $blob = Get-AzStorageBlob -Container $containerName -Blob $blobName -Context $storageContext
-    if ($blob){
-        Write-Host "Success! '$blobName' backed up as '$blobname' (version  $($blob.VersionId))."
-        Write-Verbose "Upload operation took $($timer.Elapsed.TotalMinutes) minutes."
+foreach ($blobNameMapping in $blobNameMappings){
+
+    Write-Host @"
+Uploading file $($blobNameMapping.LocalFilePath.Name) 
+    Origin: $($blobNameMapping.LocalFilePath)
+    Destination: $($StorageAccountName)/$($containerName)/$($blobNameMapping.BlobName)
+"@
+
+    #Verify path exists and isn't in use
+    if(Test-FileReady -FilePath $blobNameMapping.LocalFilePath){
+
+        $timer = [System.Diagnostics.Stopwatch]::StartNew()
+        Set-AzStorageBlobContent -Container $containerName -File $blobNameMapping.LocalFilePath -Blob $blobNameMapping.BlobName -Context $storageContext -Force | Out-Null
+        $timer.Stop()
+
+        $blob = Get-AzStorageBlob -Container $containerName -Blob $blobName -Context $storageContext
+
+        if ($blob){
+            Write-Host "'$($blobNameMapping.Name) backed up.' \n\t Version:  $($blob.VersionId))." -ForegroundColor Green
+            Write-Verbose "Upload operation took $([math]::Round($timer.Elapsed.TotalMinutes), 2) minutes."
+        }else{
+            Write-Warning "Unable to verify $($blobNameMapping.Name) backed up."
+        }
     }else{
-        Write-Warning "Unable to verify disk backed up."
+        Write-Error "Unable to upload $($blobNameMapping.Name).  File either doesn't exist or is locked." -ErrorAction Continue
     }
 
 }
