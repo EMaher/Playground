@@ -35,6 +35,7 @@ if (-not $StorageAccountName){
 }
 Write-Verbose "StorageAccountName: '$StorageAccountName'"
 
+#Get Az Context
 Resolve-AzContext
 Export-AzContext -Force
 

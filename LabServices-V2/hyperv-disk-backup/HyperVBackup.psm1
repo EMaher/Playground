@@ -26,7 +26,7 @@ class BackUpSetting {
         if (-not $Settings.StorageAccountName) {
             Write-Verbose "settings.json file didn't specify a StorageAccountName"
         }
-        if (-no $Settings.SearchDirectories) {
+        if (-not $Settings.SearchDirectories) {
             Write-Verbose "settings.json file didn't specify a StorageAccountName"
         }
     }
@@ -85,7 +85,6 @@ function Get-CurrentUserEmail {
     $headers.Add("Authorization", "Bearer $token")
 
     $response = Invoke-RestMethod 'https://graph.microsoft.com/v1.0/me' -Method 'GET' -Headers $headers
-    #$response | ConvertTo-Json
     return $response | Select-Object -ExpandProperty mail
 }
 
@@ -180,8 +179,6 @@ Get-BlobNameMapping {
 
     return $blobNameMappings
 }
-
-
 
 Export-ModuleMember -Function New-BackupSetting
 Export-ModuleMember -Function Resolve-AzContext
