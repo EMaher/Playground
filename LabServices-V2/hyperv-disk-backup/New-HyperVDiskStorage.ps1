@@ -4,28 +4,17 @@ param (
     [Parameter(Mandatory = $true)][String]$StorageAccountName,
     [Parameter(Mandatory = $false)][String]$Location,
     [Parameter(Mandatory = $false)][String[]]$InstructorEmails,
-    [Parameter(Mandatory = $false)][String[]]$StudentEmails
+    [Parameter(Mandatory = $false)][String[]]$StudentEmails,
+    [Parameter(Mandatory = $false)][String]$TermCode
     )
 
 $ErrorActionPreference = 'Stop' 
 
+Import-Module $(Join-Path $PSScriptRoot "HyperVBackup.psm1") -Force
+$VerboseOutputInModuleFunctions = $PSBoundParameters.ContainsKey('Verbose')
+
 $InstructorRbacRoleName = "Storage Blob Data Reader"
 $StudentRbacRoleName = "Storage Blob Data Contributor" 
-
-function Get-AzADUserIdByEmail([string] $userEmail) {
-    $userAdObject = $null
-    $userAdObject = Get-AzADUser -UserPrincipalName $email.ToString().Trim() -ErrorAction SilentlyContinue
-    if (-not $userAdObject) {
-        $userAdObject = Get-AzADUser -Mail $email.ToString().Trim() -ErrorAction SilentlyContinue
-    }
-
-    if (-not $userAdObject){
-        Write-Error "Unable to find object for user with email $userEmail"
-    }else{
-        Write-Verbose "Found id $($UserAdObject.Id) for email $userEmail"
-        return $userAdObject.Id
-    }
-}
 
 function Update-BlobRole(
     [Parameter(Mandatory=$true)][guid] $UserAdObjectId, 
@@ -38,10 +27,6 @@ function Update-BlobRole(
         $roleAssignment = New-AzRoleAssignment -ObjectId $UserAdObjectId -RoleDefinitionName $RoleName -Scope $scope               
     }
     Write-Verbose "Role assignment $($roleAssignment.RoleAssignmentId) for $($roleAssignment.SignInName)."
-}
-
-function Get-StudentContainerName($Email){
-    return "$($Email.Replace('@', "-").Replace(".", "-"))".ToLower()
 }
 
 $StorageAccountName = [Regex]::Replace($StorageAccountName, "[^a-zA-Z0-9]", "").ToLower()
@@ -75,25 +60,31 @@ if(-not $(Get-AzResourceGroup -ResourceGroupName $ResourceGroupName -ErrorAction
 #Create storage account
 $storageContext = Get-AzStorageAccount -ResourceGroupName $ResourceGroupName -AccountName $StorageAccountName -ErrorAction SilentlyContinue
 if ($storageContext){
-    Write-Host "Using existing storage account with the name '$StorageAccountName'."
+    Write-Verbose "Using existing storage account with the name '$StorageAccountName'."
 
 }else{
     Write-Host "Creating storage account '$StorageAccountName' in $ResourceGroupName"
     if (-not [String]::IsNullOrWhiteSpace($Location)){
         $storageContext = New-AzStorageAccount -ResourceGroupName $ResourceGroupName -AccountName $StorageAccountName -Location $Location -SkuName Standard_GRS
-        Write-Host "Created storage account with the name '$StorageAccountName' in $ResourceGroupName."
+        Write-Verbose "Created storage account with the name '$StorageAccountName' in $ResourceGroupName."
     }else{
         Write-Error "Could not create storage account $StorageAccountName in $ResourceGroupName.  Missing required parameter Location"
     }
 }
 
+# Change the storage account tier to cool
+#   See https://learn.microsoft.com/azure/storage/blobs/storage-blob-storage-tiers
+#   for more information about storage tiers.
+Write-Host "Enabling access tier to Cool for storage account '$StorageAccountName' in $ResourceGroupName"
+Set-AzStorageAccount -ResourceGroupName $ResourceGroupName -Name $StorageAccountName -AccessTier Cool -Force | Out-Null
+
 # Enable versioning.
 Write-Host "Enabling version for storage account '$StorageAccountName' in $ResourceGroupName"
-Update-AzStorageBlobServiceProperty -ResourceGroupName $ResourceGroupName    -StorageAccountName $StorageAccountName  -IsVersioningEnabled $true
+Update-AzStorageBlobServiceProperty -ResourceGroupName $ResourceGroupName   -StorageAccountName $StorageAccountName  -IsVersioningEnabled $true | Out-Null
 
 #Set read permissions on acct for instructors
 foreach ($email in $InstructorEmails){
-    $adObjectId = Get-AzADUserIdByEmail -userEmail $email
+    $adObjectId = Get-AzADUserIdByEmail -userEmail $email -Verbose:$VerboseOutputInModuleFunctions
     Update-BlobRole -UserAdObject $adObjectId -RoleName $InstructorRbacRoleName -Scope $storageContext.Id -ErrorAction Continue
     Write-Host "$email given $InstructorRbacRoleName on $($storageContext.Name) storage account."
 }
@@ -102,14 +93,11 @@ $storageContext | Set-AzCurrentStorageAccount | Out-Null
 #Create container for each student
 #Set r/w permissions for each student on their container
 foreach ($email in $StudentEmails){
-    Write-Host "Creating container for $email."
+    Write-Host "Verifying container status for $($email) (Term: '$($TermCode)')."
 
-    $adObjectId = Get-AzADUserIdByEmail -userEmail $email
+    $adObjectId = Get-AzADUserIdByEmail -userEmail $email -Verbose:$VerboseOutputInModuleFunctions
 
-    #Alternatively, create container name based on the AAD ObjectId for the student
-    #$studentContainerName = $adObjectId
-
-    $studentContainerName = Get-StudentContainerName -Email $email
+    $studentContainerName = Get-ExpectedContainerName -Email $email -TermCode $TermCode -Verbose:$VerboseOutputInModuleFunctions
     $storageContainer = Get-AzStorageContainer  -Name $studentContainerName -ErrorAction SilentlyContinue 
     if (-not $storageContainer){
         $storageContainer = New-AzStorageContainer -Name $studentContainerName -Permission Off
@@ -119,6 +107,6 @@ foreach ($email in $StudentEmails){
     }
     
     Write-Host "Updating permissions for student's container."
-    Update-BlobRole -UserAdObject $adObjectId -RoleName $StudentRbacRoleName -Scope "$($storageContext.id)/blobServices/default/containers/$studentContainerName" -ErrorAction Continue
+    Update-BlobRole -UserAdObject $adObjectId -RoleName $StudentRbacRoleName -Scope "$($storageContext.id)/blobServices/default/containers/$studentContainerName" -ErrorAction Continue | Out-Null
     Write-Host "Using container $($storageContainer.Name) for $email.  User has '$StudentRbacRoleName' access on the container only."
 }

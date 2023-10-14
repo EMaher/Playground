@@ -1,4 +1,9 @@
 {
     "ClassCode": "CS101",
-    "StorageAccountName": "mystorageaccount"
+    "StorageAccountName": "mystorageaccount",
+    "TermCode": "Fall23",
+    "SearchDirectories" : [ 
+        "C:\\ProgramData\\Microsoft\\Windows\\Virtual Hard Disks", 
+        "C:\\Users\\Public\\Documents" 
+    ]
 }
