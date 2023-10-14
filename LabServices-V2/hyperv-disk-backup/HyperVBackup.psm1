@@ -36,8 +36,6 @@ function Get-ConfigurationSettings($SettingsFilePath) {
     return Get-Content -Path $SettingsFilePath -ErrorAction SilentlyContinue | ConvertFrom-Json  
 }
 
-func
-
 function New-BackupSetting {
     [CmdletBinding()]param()
     return [BackupSettings]::new()
@@ -92,9 +90,9 @@ function Get-AzADUserIdByEmail {
     [CmdletBinding()]param([string] $userEmail)
 
     $userAdObject = $null
-    $userAdObject = Get-AzADUser -UserPrincipalName $email.ToString().Trim() -ErrorAction SilentlyContinue
+    $userAdObject = Get-AzADUser -UserPrincipalName $userEmail.ToString().Trim() -ErrorAction SilentlyContinue
     if (-not $userAdObject) {
-        $userAdObject = Get-AzADUser -Mail $email.ToString().Trim() -ErrorAction SilentlyContinue
+        $userAdObject = Get-AzADUser -Mail $userEmail.ToString().Trim() -ErrorAction SilentlyContinue
     }
 
     if (-not $userAdObject) {
@@ -113,11 +111,13 @@ function Get-ExpectedContainerName {
 
     $containerName = "$($Email.Replace('@', "-").Replace(".", "-"))".ToLower().Trim()
     if (-not [string]::IsNullOrEmpty($TermCode)) {
-        $containerName = "$($TermCode)-$($containerName)"
+        $containerName = "$($TermCode)-$($containerName)".ToLower().Trim()
     }
 
     #container names must be 63 characters or less
-    $containerName.Substring(0, [Math]::Min($containerName.Length, 63))
+    $containerName = $containerName.Substring(0, [Math]::Min($containerName.Length, 63))
+
+    Write-Verbose "Expected container name is $($containerName) for term '$($TermCode)' for email '$($Email)'"
 
     return $containerName
 }
@@ -147,7 +147,7 @@ function Test-FileReady {
     return $returnVal
 }
 
-Get-BlobNameMapping {
+function Get-BlobNameMapping {
     [CmdletBinding()]param([string] $Path, [string] $ClassCode)
 
     $blobNameMappings = New-Object "System.Collections.ArrayList"

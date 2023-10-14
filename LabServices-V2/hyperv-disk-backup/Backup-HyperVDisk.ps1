@@ -6,7 +6,8 @@ param (
 )
 $ErrorActionPreference = 'Stop' 
 
-Import-Module $(Join-Path $PSScriptRoot "HyperVBackup.psm1")
+Import-Module $(Join-Path $PSScriptRoot "HyperVBackup.psm1") -Force
+$VerboseOutputInModuleFunctions = $PSBoundParameters.ContainsKey('Verbose')
 
 $Settings = New-BackupSetting
 
@@ -43,7 +44,7 @@ Export-AzContext -Force
 $storageContext = New-AzStorageContext -UseConnectedAccount -BlobEndpoint "https://$($StorageAccountName).blob.core.windows.net/"
 
 #Verify container exists
-$containerName = Get-ExpectedContainerName -Email $(Get-CurrentUserEmail) -TermCode $Settings.TermCode
+$containerName = Get-ExpectedContainerName -Email $(Get-CurrentUserEmail) -TermCode $Settings.TermCode -Verbose:$VerboseOutputInModuleFunctions
 Write-Verbose "ContainerName: '$($containerName)'"
 $container =  Get-AzStorageContainer -Name $containerName -Context $storageContext -ErrorAction SilentlyContinue
 if (-not $container){
@@ -66,7 +67,7 @@ Uploading file $($blobNameMapping.Name)
 "@
 
     #Verify path exists and isn't in use
-    if(Test-FileReady -FilePath $blobNameMapping.LocalFilePath){
+    if(Test-FileReady -FilePath $blobNameMapping.LocalFilePath -Verbose:$VerboseOutputInModuleFunctions){
 
         $timer = [System.Diagnostics.Stopwatch]::StartNew()
         Set-AzStorageBlobContent -Container $containerName `
@@ -78,7 +79,7 @@ Uploading file $($blobNameMapping.Name)
         $blob = Get-AzStorageBlob -Container $containerName -Blob $blobName -Context $storageContext
 
         if ($blob){
-            Write-Host "'$($blobNameMapping.Name) backed up.' \n\t Version:  $($blob.VersionId))." -ForegroundColor Green
+            Write-Host "'$($blobNameMapping.Name) backed up.' `n`t Version:  $($blob.VersionId))." -ForegroundColor Green
             Write-Verbose "Upload operation took $([math]::Round($timer.Elapsed.TotalMinutes), 2) minutes."
         }else{
             Write-Warning "Unable to verify $($blobNameMapping.Name) backed up."
