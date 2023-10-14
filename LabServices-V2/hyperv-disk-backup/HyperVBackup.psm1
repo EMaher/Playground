@@ -1,44 +1,18 @@
-
+ 
 #************* Settings *****************
 
-class BackUpSetting {
-    [string]$ClassCode
-    [string]$TermCode
-    [string]$StorageAccountName
-    [string[]]$SearchDirectories
+function Get-ConfigurationSettings {
+    [CmdletBinding()]
+    param(
+        [string]$SettingsFilePath
+    )
 
-    BackUpSetting() {
-        $settingFilePath = $(Join-Path $PSScriptRoot "settings.json")
-        $settings = Get-ConfigurationSettings -SettingsFilePath $settingFilePath
-
-        $this.ClassCode = $settings.ClassCode
-        $this.TermCode = $settings.TermCode
-        $this.StorageAccountName = $settings.StorageAccountName
-        $this.SearchDirectories = $settings.SearchDirectories
-
-
-        if (-not $Settings.ClassCode) {
-            Write-Verbose "settings.json file didn't specify a ClassCode."
-        }
-        if (-not $Settings.TermCode) {
-            Write-Verbose "settings.json file didn't specify a TermCode"
-        }
-        if (-not $Settings.StorageAccountName) {
-            Write-Verbose "settings.json file didn't specify a StorageAccountName"
-        }
-        if (-not $Settings.SearchDirectories) {
-            Write-Verbose "settings.json file didn't specify a StorageAccountName"
-        }
+    if (-not $SettingsFilePath){
+        $SettingsFilePath = $(Join-Path $PSScriptRoot "settings.json") 
     }
-}
 
-function Get-ConfigurationSettings($SettingsFilePath) {
-    return Get-Content -Path $SettingsFilePath -ErrorAction SilentlyContinue | ConvertFrom-Json  
-}
-
-function New-BackupSetting {
-    [CmdletBinding()]param()
-    return [BackupSettings]::new()
+    $settings =   return Get-Content -Path $SettingsFilePath -ErrorAction SilentlyContinue | ConvertFrom-Json 
+    return $settings
 }
 
 #************* AD and email related ***************
@@ -54,6 +28,7 @@ function Resolve-AzContext {
             $azContext = Connect-AzAccount
         }
     }
+
     return $azContext
 }
 function Export-AzContext() {
@@ -62,7 +37,7 @@ function Export-AzContext() {
     $contextFileExists = (Test-Path $AZ_CONTEXT_PATH)
 
     if ($(-not $contextFileExists) -or $($contextFileExists -and $Overwrite)) {
-        if (-not $Force -and $($PSCmdlet.ShouldContinue("Do you want program to remember login information?", "Save context"))) {
+        if ($Force -or $($PSCmdlet.ShouldContinue("Do you want program to remember login information?", "Save context"))) {
              Save-AzContext -Path $AZ_CONTEXT_PATH
         }
     }
@@ -152,7 +127,7 @@ function Get-BlobNameMapping {
 
     $blobNameMappings = New-Object "System.Collections.ArrayList"
 
-    $Path = Resolve-Path $Path
+    $Path = Resolve-Path $Path -ErrorAction SilentlyContinue
 
     if (-not $(Test-Path -Path $Path)) {
         Write-Warning "Couldn't find path $Path"
@@ -165,22 +140,22 @@ function Get-BlobNameMapping {
     }
 
     if (Test-Path -Path $Path -PathType Leaf) {
-        $blobNameMappings.Add([PSCustomObject]@{"Name" = $Path.Name; "LocalFilePath" = $Path; "BlobName" = "$(prefix)$($Path | Select-Object -Expand Name)" })
+        $blobNameMappings.Add([PSCustomObject]@{"Name" = $Path.Name; "LocalFilePath" = $Path; "BlobName" = "$(prefix)$($Path.Name)" })
     }
     else {
         $files = Get-ChildItem $Path -Recurse -File
         foreach ($file in $files) {
-            $fileFullName = $file | Select-Object -ExpandProperty FullPath
+            $fileFullName = $file | Select-Object -ExpandProperty FullName
             $fileName = $file | Select-Object -ExpandProperty Name
-            $fileRelativePath = $file.Replace($Path, $($Path | Select-Object -ExpandProperty FullPath), "").Replace("\", "/").Trim("/")
-            $blobNameMappings.Add([PSCustomObject]@{"Name" = $fileName; "LocalFilePath" = $fileFullName; "BlobName" = "$($prefix)$($fileRelativePath)" })
+            $fileRelativePath = $fileFullName.Replace($Path, "").Replace("\", "/").Trim("/")
+            $blobNameMappings.Add([PSCustomObject]@{"Name" = $fileName; "LocalFilePath" = $fileFullName; "BlobName" = "$($prefix)$($fileRelativePath)" }) | Out-Null
         }
     }
 
     return $blobNameMappings
 }
 
-Export-ModuleMember -Function New-BackupSetting
+Export-ModuleMember -Function Get-ConfigurationSettings
 Export-ModuleMember -Function Resolve-AzContext
 Export-ModuleMember -Function Export-AzContext
 Export-ModuleMember -Function Remove-ExportedAzContext
@@ -188,3 +163,4 @@ Export-ModuleMember -Function Get-CurrentUserEmail
 Export-ModuleMember -Function Get-AzADUserIdByEmail
 Export-ModuleMember -Function Get-ExpectedContainerName
 Export-ModuleMember -Function Get-BlobNameMapping
+Export-ModuleMember -Function Test-FileReady 

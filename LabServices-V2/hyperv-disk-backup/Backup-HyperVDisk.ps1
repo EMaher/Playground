@@ -1,15 +1,20 @@
- 
+  
 [CmdletBinding()]
 param (
-    [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $false)][string]$StorageAccountName
+    [Parameter(Mandatory = $false)][string]$Path,
+    [Parameter(Mandatory = $false)][string]$StorageAccountName,
+    [Parameter(Mandatory = $false)][switch]$Force
 )
 $ErrorActionPreference = 'Stop' 
 
 Import-Module $(Join-Path $PSScriptRoot "HyperVBackup.psm1") -Force
 $VerboseOutputInModuleFunctions = $PSBoundParameters.ContainsKey('Verbose')
 
-$Settings = New-BackupSetting
+# Configure variables for ShouldContinue prompts
+$YesToAll = $Force
+$NoToAll = $false
+
+$Settings = Get-ConfigurationSettings -Verbose:$VerboseOutputInModuleFunctions
 
 # Get file(s) to upload
 $PathList = $null
@@ -21,7 +26,7 @@ if ($Path){
 if(-not $PathList){
     Write-Error "Must specify 'Path' parameter or have settings.json that specifies SearchDirectories."
 }else{
-    Write-Verbose "Path(s) specified: $($PathList)"
+    Write-Verbose "Path(s) specified: $($PathList -join ';')"
 }
 
 
@@ -46,7 +51,7 @@ $storageContext = New-AzStorageContext -UseConnectedAccount -BlobEndpoint "https
 #Verify container exists
 $containerName = Get-ExpectedContainerName -Email $(Get-CurrentUserEmail) -TermCode $Settings.TermCode -Verbose:$VerboseOutputInModuleFunctions
 Write-Verbose "ContainerName: '$($containerName)'"
-$container =  Get-AzStorageContainer -Name $containerName -Context $storageContext -ErrorAction SilentlyContinue
+$container =  Get-AzStorageContainer -Name $containerName -Context $storageContext -ErrorAction SilentlyContinue -Verbose:$VerboseOutputInModuleFunctions
 if (-not $container){
      Write-Error "Couldn't find/access container '$($containerName)' in storage account '$($StorageAccountName)'"
 }
@@ -54,39 +59,46 @@ if (-not $container){
 #Calculate blob names
 $blobNameMappings = New-Object "System.Collections.ArrayList"
 foreach ($tempPath in $PathList){
-    $blobNameMappings.AddRange(($(Get-BlobNameMapping -Path $tempPath -ClassCode $Settings.ClassCode)))
+    $tempMappings = Get-BlobNameMapping -Path $tempPath -ClassCode $Settings.ClassCode -Verbose:$VerboseOutputInModuleFunctions
+    if ($tempMappings){
+        $blobNameMappings.AddRange($tempMappings)
+    }
 }
 
 #Upload files
 foreach ($blobNameMapping in $blobNameMappings){
 
-    Write-Host @"
+    if ($PSCmdlet.ShouldContinue("Backup file?`n`tOrigin: $($blobNameMapping.LocalFilePath)`n`tDestination: $($StorageAccountName)/$($containerName)/$($blobNameMapping.BlobName)", "Uploading file $($blobNameMapping.Name)", [ref] $YesToAll, [ref] $NoToAll )){
+
+        Write-Host @"
 Uploading file $($blobNameMapping.Name) 
     Origin: $($blobNameMapping.LocalFilePath)
     Destination: $($StorageAccountName)/$($containerName)/$($blobNameMapping.BlobName)
 "@
 
-    #Verify path exists and isn't in use
-    if(Test-FileReady -FilePath $blobNameMapping.LocalFilePath -Verbose:$VerboseOutputInModuleFunctions){
+        #Verify path exists and isn't in use
+        if(Test-FileReady -FilePath $blobNameMapping.LocalFilePath -Verbose:$VerboseOutputInModuleFunctions){
 
-        $timer = [System.Diagnostics.Stopwatch]::StartNew()
-        Set-AzStorageBlobContent -Container $containerName `
-            -File $blobNameMapping.LocalFilePath `
-            -Blob $blobNameMapping.BlobName `
-            -Context $storageContext -Force | Out-Null
-        $timer.Stop()
+            $timer = [System.Diagnostics.Stopwatch]::StartNew()
+            Set-AzStorageBlobContent -Container $containerName `
+                -File $blobNameMapping.LocalFilePath `
+                -Blob $blobNameMapping.BlobName `
+                -Context $storageContext -Force | Out-Null
+            $timer.Stop()
 
-        $blob = Get-AzStorageBlob -Container $containerName -Blob $blobName -Context $storageContext
+            $blob = Get-AzStorageBlob -Container $containerName -Blob $blobNameMapping.BlobName -Context $storageContext
 
-        if ($blob){
-            Write-Host "'$($blobNameMapping.Name) backed up.' `n`t Version:  $($blob.VersionId))." -ForegroundColor Green
-            Write-Verbose "Upload operation took $([math]::Round($timer.Elapsed.TotalMinutes), 2) minutes."
+            if ($blob){
+                Write-Host "SUCCESS! File '$($blobNameMapping.Name)' backed up. (Version:  $($blob.VersionId))." -ForegroundColor Green
+                Write-Verbose "Upload operation took $([math]::Round($timer.Elapsed.TotalMinutes), 2) minutes."
+            }else{
+                Write-Warning "Unable to verify $($blobNameMapping.Name) backed up."
+            }
         }else{
-            Write-Warning "Unable to verify $($blobNameMapping.Name) backed up."
+            Write-Error "Unable to upload $($blobNameMapping.Name).  File either doesn't exist or is locked." -ErrorAction Continue
         }
     }else{
-        Write-Error "Unable to upload $($blobNameMapping.Name).  File either doesn't exist or is locked." -ErrorAction Continue
+        Write-Host "SKIPPED! File '$($blobNameMapping.Name)' NOT backed up." -ForegroundColor Yellow
     }
 
 }
-

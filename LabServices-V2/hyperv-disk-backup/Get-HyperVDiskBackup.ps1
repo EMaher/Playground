@@ -1,13 +1,15 @@
 [CmdletBinding()]
 param (
     [Parameter(Mandatory = $false)][string]$StorageAccountName,
-    [switch]$IncludeVersion
+    [Parameter(Mandatory = $false)][switch]$IncludeVersion
 )
 $ErrorActionPreference = 'Stop' 
 
-Import-Module $(Join-Path $PSScriptRoot "HyperVBackup.psm1")
 
-$Settings = New-BackupSetting
+Import-Module $(Join-Path $PSScriptRoot "HyperVBackup.psm1") -Force
+$VerboseOutputInModuleFunctions = $PSBoundParameters.ContainsKey('Verbose')
+
+$Settings = Get-ConfigurationSettings -Verbose:$VerboseOutputInModuleFunctions
 
 #Get Storage account name
 # Note, can't verify storage account existence because student's only have access to their containers.
@@ -27,7 +29,7 @@ Export-AzContext -Force
 $storageContext = New-AzStorageContext -UseConnectedAccount -BlobEndpoint "https://$($StorageAccountName).blob.core.windows.net/"
 
 #Verify container exists
-$containerName = Get-ExpectedContainerName -Email $(Get-CurrentUserEmail) -TermCode $Settings.TermCode
+$containerName = Get-ExpectedContainerName -Email $(Get-CurrentUserEmail) -TermCode $Settings.TermCode -Verbose:$VerboseOutputInModuleFunctions
 Write-Verbose "ContainerName: '$($containerName)'"
 $container =  Get-AzStorageContainer -Name $containerName -Context $storageContext -ErrorAction SilentlyContinue
 if (-not $container){
@@ -38,14 +40,20 @@ if (-not $container){
 $blobs = Get-AzStorageBlob -Container $containerName -Context $storageContext -IncludeVersion:$IncludeVersion
 $blobsToDownload = $blobs `
     | Sort-Object -Property @{Expression={$_.Name}; Descending=$false}, @{Expression={$_.LastModified} ;Descending=$true}    `
-    | Out-GridView -Title "Select which backup files to download."  -Wait -PassThru
+    | Out-GridView -Title "Select which backup files to download." -PassThru
 
 #download blobs
 foreach ($blob in $blobsToDownload){
 
-    $fileDestination = join-Path $env:TMPDIR $file.VersionId $file.Name
-    $fileDestination = $fileDestination.Split([IO.Path]::GetInvalidFileNameChars()) -join '_'
+    $fileDestination = Join-Path $env:USERPROFILE "Downloads"
+    if($IncludeVersion){
+        $fileDestination = Join-Path $fileDestination $($blob.VersionId.Split([IO.Path]::GetInvalidFileNameChars()) -join '_')
+    }
+    $fileDestination = Join-Path $fileDestination $blob.Name
 
+    #Create destination folder if doesn't already exist
+    New-Item -ItemType Directory -Path (Split-Path -Parent $fileDestination) -Force | Out-Null
+    
     Write-Host @"
 Downloading $($blob.Name)
     Version: $($blob.VersionId)
@@ -54,11 +62,11 @@ Downloading $($blob.Name)
 "@
 
     $timer = [System.Diagnostics.Stopwatch]::StartNew()
-    $blob | Get-AzStorageContext -Destination $fileDestination
+    $blob | Get-AzStorageBlobContent -Destination $fileDestination | Out-Null
     $timer.Stop()
 
-    Write-Host "Downloaded $($blob.name), version $($blob.VersionId)"
+    if(Test-Path $fileDestination){
+        Write-Host "SUCCESS! Downloaded $($blob.name) (version $($blob.VersionId)) to $fileDestination" -ForegroundColor Green
+    }
     Write-Verbose "Download operation took $([math]::Round($timer.Elapsed.TotalMinutes), 2) minutes."
 }
-
-
