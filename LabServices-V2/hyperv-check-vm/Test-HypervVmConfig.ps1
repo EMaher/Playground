@@ -1,6 +1,14 @@
   
 [CmdletBinding()]
-param ( )
+param (
+    [Parameter(Mandatory = $false)][switch]$Force
+)
+
+$ErrorActionPreference = 'Stop' 
+
+# Configure variables for ShouldContinue prompts
+$YesToAll = $Force
+$NoToAll = $false
 
 # *** CHECK NORMAL USER SETTINGS ***
 
@@ -13,17 +21,33 @@ param ( )
 
 # TODO: Take VM/OS list to verify against known minimum configurations.
 
-$ErrorActionPreference = 'Stop' 
+
 
 $vms = Get-VM
 
 # Script that checks recommendations for each Hyper-V VM as described by https://learn.microsoft.com/azure/lab-services/concept-nested-virtualization-template-vm#recommendations
 
+# Warn if any VMs are in saved state
+$savedStateVMs =  @($vms | Where-Object { $_.State -eq "Saved" })
+if ($savedStateVMs){
+    Write-Warning "Found VM(s) that are in a saved state. VM may fail to start if processor of the Azure VM changes.`n`t$($savedStateVMs -join '`n`t')"
+}
+
 #For each VM
 $vms | ForEach-Object{
+
+    Write-Host "Testing $_.VMName"
+
     # TODO: Add check to see if VM is running. We won't be able to some change settings if it is.
 
-    # Make sure automatic shutdown action is Shutdown
+    # Set automatic shutdown action is Shutdown
+    if ($_.AutomaticStopAction -ne "ShutDown"){
+        if ($PSCmdlet.ShouldContinue("Change AutomaticStopOption to ShutDown?  This will require stopping the VM, if it is running.", "AutomaticStopOption for $_.VMName", [ref] $YesToAll, [ref] $NoToAll )){
+            $_ | Stop-VM
+            $_ | Set-VM -AutomaticStopAction ShutDown
+        }
+
+    }
 
     # Verify disk is vhdx not vhd
 
