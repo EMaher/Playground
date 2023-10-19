@@ -14,15 +14,18 @@
    Login-AzAccount
    ```
 
-3. Verify correct subscription is the current context.  All future commands will use this.  If not change context.
+3. Verify correct subscription is the current context.  All future commands will use this.
 
    ```powershell
    Get-AzContext
    ```
 
-   If context is not as desired, switch subscriptions.  Start by listing all available subscriptions. 
+   If context is not as desired, switch subscriptions.  Start by listing all available subscriptions, then update the context.
 
-   ```powershell
+   ```powershel
+   #List subscriptions
+   Get-AzSubscription
+
    Set-AzContext -Subscription 11111111-1111-1111-1111-111111111111
    ```
 
@@ -39,8 +42,8 @@
     ```powershell
     Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EMaher/Playground/master/LabServices-V2/hyperv-disk-backup/HyperVBackup.psm1" -OutFile "HyperVBackup.psm1"
     Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EMaher/Playground/master/LabServices-V2/hyperv-disk-backup/New-HyperVDiskStorage.ps1" -OutFile "New-HyperVDiskStorage.ps1"
-    
-    ./New-HyperVDiskStorage.ps1 -ResourceGroupName "<ResourceGroupName>" -StorageAccountName "<StorageAccountName>" -Location "<location>" -InstructorEmails @('email1@myschool.com', 'email2@myschool.com') -StudentEmails @('student1@myschool.com', 'student2@myschool.com')
+
+    ./New-HyperVDiskStorage.ps1 -ResourceGroupName "<ResourceGroupName>" -StorageAccountName "<StorageAccountName>" -Location "<location>" -InstructorEmails @('email1@myschool.com', 'email2@myschool.com') -StudentEmails @('student1@myschool.com', 'student2@myschool.com') -TermCode "<TermCode>"
     ```
 
 6. Save storage account name
@@ -50,11 +53,11 @@
 1. Save PowerShell file easy to find location (like the desktop) with configuration file.
 
     ```powershell
-    New-Item -Type Directory $(Join-Path $env:USERPROFILE Desktop | Join-Path -ChildPath "SaveHypervDisk")
-    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EMaher/Playground/master/LabServices-V2/hyperv-disk-backup/HyperVBackup.psm1" -OutFile $(Join-Path $env:USERPROFILE Desktop | Join-Path -ChildPath "HyperVBackup.psm1")
-    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EMaher/Playground/master/LabServices-V2/hyperv-disk-backup/Backup-HyperVDisk.ps1" -OutFile $(Join-Path $env:USERPROFILE Desktop | Join-Path -ChildPath "SaveHypervDisk\Backup-HyperVDisk.ps1")
-    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EMaher/Playground/master/LabServices-V2/hyperv-disk-backup/Get-HyperVDiskBackup.ps1" -OutFile $(Join-Path $env:USERPROFILE Desktop | Join-Path -ChildPath "SaveHypervDisk\Get-HyperVDiskBackup.ps1")
-    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EMaher/Playground/master/LabServices-V2/hyperv-disk-backup/settings.json" -OutFile $(Join-Path $env:USERPROFILE Desktop | Join-Path -ChildPath "SaveHypervDisk\settings.json")
+    $directory = New-Item -Type Directory $(Join-Path $env:USERPROFILE Desktop | Join-Path -ChildPath "SaveHypervDisk") -Force
+    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EMaher/Playground/master/LabServices-V2/hyperv-disk-backup/HyperVBackup.psm1" -OutFile $(Join-Path  $directory.FullName "HyperVBackup.psm1")
+    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EMaher/Playground/master/LabServices-V2/hyperv-disk-backup/Backup-HyperVDisk.ps1" -OutFile $(Join-Path $directory.FullName "Backup-HyperVDisk.ps1")
+    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EMaher/Playground/master/LabServices-V2/hyperv-disk-backup/Get-HyperVDiskBackup.ps1" -OutFile $(Join-Path  $directory.FullName "Get-HyperVDiskBackup.ps1")
+    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EMaher/Playground/master/LabServices-V2/hyperv-disk-backup/settings.json" -OutFile $(Join-Path  $directory.FullName "settings.json")
     ```
 
 2. Update configuration is settings.json.  
@@ -72,7 +75,8 @@
             "C:\\ProgramData\\Microsoft\\Windows\\Virtual Hard Disks", 
             "C:\\Users\\Public\\Documents"
         ]
-    }```
+    }
+    ```
 
 3. Install 'Az' module.  It is required by the scripts the students will use.
 
@@ -89,20 +93,42 @@
     Login-AzAccount
     ```
 
-Backup disks to storage account. Script will look for *.vhdx files in search folders specified settings.json
+3. Open PowerShell windows and navigate to script directory
 
-   ```powershell
-   ./Backup-HyperVDisk.ps1
-   ```
+```powershell
+cd "$($env:USERPROFILE)\Desktop\SaveHypervDisk"
+```
+
+### Backup disks
+
+To backup all disks to storage account, run the following command. Script will look for *.vhdx files in search folders specified settings.json
+
+```powershell
+./Backup-HyperVDisk.ps1
+```
+
+To backup a single file:
+
+```powershell
+./Backup-HyperVDisk.ps1 -Path "<path to file>"
+```
+
+To suppress confirmation prompts, use the `-Force` switch.
+
+```powershell
+./Backup-HyperVDisk.ps1 -Force
+```
+
+### Download backup disks
 
 To download a backed up disk:
 
-   ```powershell
-   ./Get-HyperVDiskBackup.ps1 
-   ```
+```powershell
+./Get-HyperVDiskBackup.ps1 
+```
 
 To download a specific version of a backed up disk:
 
-   ```powershell
-   ./Get-HyperVDiskBackup.ps1 -IncludeVersion
-   ```
+```powershell
+./Get-HyperVDiskBackup.ps1 -IncludeVersion
+```

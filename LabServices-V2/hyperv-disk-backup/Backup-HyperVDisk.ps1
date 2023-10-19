@@ -61,7 +61,11 @@ $blobNameMappings = New-Object "System.Collections.ArrayList"
 foreach ($tempPath in $PathList){
     $tempMappings = Get-BlobNameMapping -Path $tempPath -ClassCode $Settings.ClassCode -Verbose:$VerboseOutputInModuleFunctions
     if ($tempMappings){
-        $blobNameMappings.AddRange($tempMappings)
+        if ($tempMappings -is [array]){
+            $blobNameMappings.AddRange($tempMappings)
+        }else {
+            $blobNameMappings.Add($tempMappings)
+        }
     }
 }
 

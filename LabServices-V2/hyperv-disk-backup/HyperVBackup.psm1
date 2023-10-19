@@ -140,7 +140,8 @@ function Get-BlobNameMapping {
     }
 
     if (Test-Path -Path $Path -PathType Leaf) {
-        $blobNameMappings.Add([PSCustomObject]@{"Name" = $Path.Name; "LocalFilePath" = $Path; "BlobName" = "$(prefix)$($Path.Name)" })
+        $fileName = $(Split-Path $Path -Leaf)
+        $blobNameMappings.Add([PSCustomObject]@{"Name" = $fileName; "LocalFilePath" = $Path; "BlobName" = "$($prefix)$($fileName)" }) | Out-Null
     }
     else {
         $files = Get-ChildItem $Path -Recurse -File

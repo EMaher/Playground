@@ -56,9 +56,9 @@ foreach ($blob in $blobsToDownload){
     
     Write-Host @"
 Downloading $($blob.Name)
-    Version: $($blob.VersionId)
-    Last modified: $($blob.LastModified)
-    Destination: $($fileDestination)
+`tVersion: $($blob.VersionId)
+`tLast modified: $($blob.LastModified)
+`tDestination: $($fileDestination)
 "@
 
     $timer = [System.Diagnostics.Stopwatch]::StartNew()
@@ -66,7 +66,7 @@ Downloading $($blob.Name)
     $timer.Stop()
 
     if(Test-Path $fileDestination){
-        Write-Host "SUCCESS! Downloaded $($blob.name) (version $($blob.VersionId)) to $fileDestination" -ForegroundColor Green
+        Write-Host "SUCCESS! Downloaded $($blob.name)`n`tVersion: $($blob.VersionId))`n`tDestination: $($fileDestination)" -ForegroundColor Green
     }
     Write-Verbose "Download operation took $([math]::Round($timer.Elapsed.TotalMinutes), 2) minutes."
 }
