@@ -10,6 +10,8 @@ $ErrorActionPreference = 'Stop'
 $YesToAll = $Force
 $NoToAll = $false
 
+# ### FUNCTIONS ###
+
 # *** CHECK NORMAL USER SETTINGS ***
 
 # Try to find other users on the machines, if there is one, then ask if they should be added to the "Hyper-V Administrators" Group
@@ -22,6 +24,48 @@ $NoToAll = $false
 # TODO: Take VM/OS list to verify against known minimum configurations.
 
 
+function Stop-HypervVm{
+    param (
+        [Parameter(ValueFromPipeline)]
+        [Microsoft.HyperV.PowerShell.VirtualMachine]
+        $vm
+    )
+
+    if (($vm | Select-Object -ExpandProperty State) -eq [Microsoft.HyperV.PowerShell.VMState]::Off){
+        return
+    }
+
+    $vm | Stop-VM -Force -WarningAction Continue
+}
+
+function Set-HypervVmProperty{
+    param (
+        [Parameter(ValueFromPipeline)]
+        [Microsoft.HyperV.PowerShell.VirtualMachine]
+        $vm,
+        [Parameter(Mandatory = $true)][scriptblock]$GetCurrentValueScriptBlock,
+        [Parameter(Mandatory = $true)][scriptblock]$GetDesiredValueScriptBlock,
+        [Parameter(Mandatory = $true)][scriptblock]$SetValueScriptBlock,
+         [string]$PropertyName,
+        [bool]$RequiresVmStopped
+    )
+
+    $currentValue = & $GetCurrentValueScriptBlock
+    $desiredValue = & $GetDesiredValueScriptBlock
+
+    if ($currentValue -ne $desiredValue){
+        if ($RequiresVmStopped -and $(($vm | Select-Object -ExpandProperty State) -ne [Microsoft.HyperV.PowerShell.VMState]::Off)){
+            if (-not $PSCmdlet.ShouldContinue("Stop VM?  It is required to change $($PropertyName) from $($currentValue) to $($desiredValue)? ", "$($PropertyName) for $($vm.VMName)", [ref] $YesToAll, [ref] $NoToAll )){
+                Write-Warning "Did not change $($PropertyName) from $($currentValue) to $($desiredValue).  VM must be stopped first."
+                return
+            }
+
+            $vm | Stop-VM -Force -WarningAction Continue
+        }
+
+        & $SetValueScriptBlock
+    }
+}
 
 $vms = Get-VM
 
@@ -40,13 +84,10 @@ foreach ($vm in $vms){
     # TODO: Add check to see if VM is running. We won't be able to some change settings if it is.
 
     # Set automatic shutdown action is Shutdown
-    if ($vm.AutomaticStopAction -ne "ShutDown"){
-        if ($PSCmdlet.ShouldContinue("Change AutomaticStopOption from $($vm.AutomaticStopAction) to ShutDown?  This will require stopping the VM, if it is running.", "AutomaticStopOption for $($vm.VMName)", [ref] $YesToAll, [ref] $NoToAll )){
-            $vm | Stop-VM -Force -WarningAction SilentlyContinue
-            $vm | Set-VM -AutomaticStopAction ShutDown
-        }
-
-    }
+    $vm | Set-HypervVmProperty -PropertyName "AutomaticStopAction" `
+        -GetCurrentValueScriptBlock {$vm | Select-Object -ExpandProperty AutomaticStopAction} `
+        -GetDesiredValueScriptBlock { [Microsoft.HyperV.PowerShell.StopAction]::ShutDown} `
+        -SetValueScriptBlock {$vm | Set-VM -AutomaticStopAction ShutDown}
 
     # Verify disk is vhdx not vhd
 
