@@ -24,28 +24,14 @@ $NoToAll = $false
 # TODO: Take VM/OS list to verify against known minimum configurations.
 
 
-function Stop-HypervVm {
-    param (
-        [Parameter(ValueFromPipeline)]
-        [Microsoft.HyperV.PowerShell.VirtualMachine]
-        $vm
-    )
-
-    if (($vm | Select-Object -ExpandProperty State) -eq [Microsoft.HyperV.PowerShell.VMState]::Off) {
-        return
-    }
-
-    $vm | Stop-VM -Force -WarningAction Continue
-}
-
 function Set-HypervVmProperty {
     param (
-        [Parameter(ValueFromPipeline)]
+        [Parameter(Mandatory = $true, ValueFromPipeline)]
         [Microsoft.HyperV.PowerShell.VirtualMachine]
         $vm,
-        [Parameter(Mandatory = $true)][scriptblock]$GetCurrentValueScriptBlock,
-        [Parameter(Mandatory = $false)][scriptblock]$GetDesiredValueScriptBlock,
-        [Parameter(Mandatory = $false)][scriptblock]$IsCurrentValueAcceptableScriptBlock,
+        [scriptblock]$GetCurrentValueScriptBlock,
+        [scriptblock]$GetDesiredValueScriptBlock,
+        [scriptblock]$IsCurrentValueAcceptableScriptBlock,
         [Parameter(Mandatory = $true)][scriptblock]$SetValueScriptBlock,
         [string]$PropertyName,
         [bool]$RequiresVmStopped
@@ -55,35 +41,36 @@ function Set-HypervVmProperty {
 
     $isAcceptableValue = $false
     if (-not $IsCurrentValueAcceptableScriptBlock) {
+        $currentValue = & $GetCurrentValueScriptBlock
+        $desiredValue = & $GetDesiredValueScriptBlock
         $isAcceptableValue = $currentValue -eq $desiredValue
     }
     else {
         $isAcceptableValue = & $IsCurrentValueAcceptableScriptBlock
     }
 
-
-
     if (-not $isAcceptableValue) {
          
+        #Stop VM
         if ($RequiresVmStopped -and $(($vm | Select-Object -ExpandProperty State) -ne [Microsoft.HyperV.PowerShell.VMState]::Off)) {
             if (-not $PSCmdlet.ShouldContinue("Stop VM?  It is required to change $($PropertyName). ", "Stop $($vm.VMName)", [ref] $YesToAll, [ref] $NoToAll )) {
-                Write-Host "Did not change $($PropertyName) from $($currentValue) to $($desiredValue).  VM must be stopped first."
+                Write-Host "Did not change $($PropertyName).  VM must be stopped first."
                 return
             }
 
             $vm | Stop-VM -Force -WarningAction Continue          
         }
 
-        $currentValue = & $GetCurrentValueScriptBlock
-        #todo: handle case when desired value is asked in set value script block
-        $desiredValue = & $GetDesiredValueScriptBlock
-
-        $prompt = "Change value of?"
-        if ($desiredValue){
-            "Change $($PropertyName) from '$($currentValue)' to '$($desiredValue)' ", "$($vm.VMName).$($PropertyName)"
+        #Change value
+        $prompt = ""
+        if ($GetCurrentValueScriptBlock) {
+            $prompt += " Current value is '$(& $GetCurrentValueScriptBlock)'."
+        }
+        if ($GetDesiredValueScriptBlock) {
+            $prompt += " New value will be '$(& $GetDesiredValueScriptBlock)'."
         }
 
-        if ($PSCmdlet.ShouldContinue($prompt, [ref] $YesToAll, [ref] $NoToAll )) {     
+        if ($PSCmdlet.ShouldContinue($prompt, "Change value of $($PropertyName)?", [ref] $YesToAll, [ref] $NoToAll )) {     
             & $SetValueScriptBlock
         }
     }
@@ -109,14 +96,14 @@ foreach ($vm in $vms) {
     $vm | Set-HypervVmProperty -PropertyName "AutomaticStopAction" `
         -GetCurrentValueScriptBlock { $vm | Select-Object -ExpandProperty AutomaticStopAction } `
         -GetDesiredValueScriptBlock { [Microsoft.HyperV.PowerShell.StopAction]::ShutDown } `
-        -SetValueScriptBlock { $vm | Set-VM -AutomaticStopAction ShutDown }
+        -SetValueScriptBlock { $vm | Set-VM -AutomaticStopAction ShutDown } `
+        -RequiresVmStopped $true
 
     # Verify disk is vhdx not vhd
 
     # Verify CPUs is more than default 1 CPU
     $vm | Set-HypervVmProperty -PropertyName "ProcessorCount" `
         -GetCurrentValueScriptBlock { $vm | Select-Object -ExpandProperty ProcessorCount } `
-        -GetDesiredValueScriptBlock { $number_of_vCPUs } `
         -IsCurrentValueAcceptableScriptBlock { $vm.ProcessorCount -gt 1 } `
         -SetValueScriptBlock { 
         if (!($number_of_vCPUs = `
@@ -133,9 +120,11 @@ foreach ($vm in $vms) {
     $assignedMemory = $vm | Get-VMMemory
     $vm | Set-HypervVmProperty -PropertyName "ProcessorCount" `
         -GetCurrentValueScriptBlock { $assignedMemory | Select-Object -ExpandProperty Startup } `
-        -IsCurrentValueAcceptableScriptBlock { $assignedMemory.Startup -ge 6 * [math]::Pow(10, 8) } `
+        -IsCurrentValueAcceptableScriptBlock { $assignedMemory.Startup -ge 512MB } `
         -SetValueScriptBlock { $vm | Set-VMMemory -Startup 2GB } `
         -RequiresVmStopped $true
+
+    #$assignedMemory.Startup -ge 6 * [math]::Pow(10, 8) 
 
     #TODO: Check variable memory
 
