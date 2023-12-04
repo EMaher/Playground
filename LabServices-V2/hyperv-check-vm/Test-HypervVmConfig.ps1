@@ -3,8 +3,12 @@
 param (
     [Parameter(Mandatory = $false)][switch]$Force
 )
+Set-StrictMode -Version Latest
+
+# Script that checks recommendations for each Hyper-V VM as described by https://learn.microsoft.com/azure/lab-services/concept-nested-virtualization-template-vm#recommendations
 
 $ErrorActionPreference = 'Stop' 
+
 
 # Configure variables for ShouldContinue prompts
 $YesToAll = $Force
@@ -75,11 +79,34 @@ function Set-HypervVmProperty {
 Write-Host "Verify running as administrator."
 if (-not (Get-RunningAsAdministrator)) { Write-Error "Please re-run this script as Administrator." }
 
-
 # *** CHECK NORMAL USER SETTINGS ***
+Write-Host "******************************"
+Write-Host "* Checking User Permissions  *"
+Write-Host "******************************"
 
 # Try to find other users on the machines, if there is one, then ask if they should be added to the "Hyper-V Administrators" Group
+$addedLocalUsers =  @(Get-LocalUser | Where-Object {[int]$($_.SID -split '-' | Select-Object -Last 1) -ge '1000' })
+if ($addedLocalUsers.Count -gt 0){
+    $hyperVAdminGroup =  Get-LocalGroup | Where-Object {$_.SID -eq "S-1-5-32-578" }
+    #$adminGroup =  Get-LocalGroup | Where-Object {$_.SID -eq "S-1-5-32-544" }
 
+      foreach ($localUser in $addedLocalUsers){
+        $isAdmin =  $null -ne $(Get-WmiObject win32_groupuser |  Where-Object {$_.groupcomponent -like '*"Administrators"'} | Where-Object { $_.PartComponent -like $($localUser | Select-Object -ExpandProperty Name) }) #work-around for powershell bug
+        Write-Verbose "$($localUser | Select-Object -ExpandProperty Name) part of Administrators group? $($isAdmin)"
+        $isHypervAdmin =@(Get-LocalGroupMember -Group $hyperVAdminGroup | Select-Object -Expand Name) -contains "$($env:COMPUTERNAME)\$($localUser | Select-Object -ExpandProperty Name)"
+        Write-Verbose "$($localUser | Select-Object -ExpandProperty Name) part of Hyper-V Administrators group? $($isHypervAdmin)"
+
+        if (-not $isAdmin -and -not $isHypervAdmin -and `
+            ($PSCmdlet.ShouldContinue("User '$($localUser | Select-Object -ExpandProperty Name)' can not use Hyper-V.  Add user to Hyper-V Administrators Group?", "Add user to Hyper-V Administrators Group?", [ref] $YesToAll, [ref] $NoToAll ))) {
+            
+            Add-LocalGroupMember -Group $hyperVAdminGroup -Member $localUser
+            Write-Verbose "$($localUser | Select-Object -ExpandProperty Name) added to Hyper-V Administrators group."
+            
+        }
+    }
+}
+
+Write-Host ""
 
 # *** CHECK VM CONFIGURATIONS  ***
 
@@ -91,7 +118,6 @@ Write-Host "******************************"
 
 $vms = Get-VM
 
-# Script that checks recommendations for each Hyper-V VM as described by https://learn.microsoft.com/azure/lab-services/concept-nested-virtualization-template-vm#recommendations
 
 # Warn if any VMs are in saved state
 $savedStateVMs = @($vms | Where-Object { $_.State -eq "Saved" })
