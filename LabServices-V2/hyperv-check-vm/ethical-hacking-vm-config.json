@@ -1,0 +1,26 @@
+{
+    "$schema": "https://raw.githubusercontent.com/EMaher/Playground/check-hyperv-vm/LabServices-V2/hyperv-check-vm/vm-config-schema.json",
+    "Configurations": [
+        {
+            "Name": "metaspoitable",
+            "Properties": {
+                "ProcessorCount": 1,
+                "Memory": {
+                    "Startup": "512MB",
+                    "DynamicMemoryEnabled": true,
+                    "Minimim": "512MB",
+                    "Maximum": "1GB"
+                },
+                "HardDriveDisks": [
+                    {
+                        "Name": "metaspoitable",
+                        "VMType": "Dynamic"
+                    }
+                ]
+            }
+        }
+    ],
+    "HyperVUsers": [
+        "NonAdminUser"
+    ]
+}

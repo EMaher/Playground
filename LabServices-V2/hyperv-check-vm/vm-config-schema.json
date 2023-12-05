@@ -84,7 +84,6 @@
       }
     },
     "required": [
-      "Configurations",
-      "HyperVUsers"
+      "Configurations"
     ]
   }

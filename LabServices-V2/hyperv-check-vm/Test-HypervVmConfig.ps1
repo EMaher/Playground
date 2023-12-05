@@ -16,6 +16,18 @@ $NoToAll = $false
 
 # ### FUNCTIONS ###
 
+function Get-ConfigurationSettings {
+    [CmdletBinding()]
+    param(
+        [string]$SettingsFilePath
+    )
+    $settings = $null
+    if (Test-Path $SettingsFilePath) {
+        $settings = return Get-Content -Path $SettingsFilePath -ErrorAction SilentlyContinue | ConvertFrom-Json 
+    }
+    return $settings
+}
+
 function Get-RunningAsAdministrator {
     [CmdletBinding()]
     param()
@@ -85,15 +97,15 @@ Write-Host "* Checking User Permissions  *"
 Write-Host "******************************"
 
 # Try to find other users on the machines, if there is one, then ask if they should be added to the "Hyper-V Administrators" Group
-$addedLocalUsers =  @(Get-LocalUser | Where-Object {[int]$($_.SID -split '-' | Select-Object -Last 1) -ge '1000' })
-if ($addedLocalUsers.Count -gt 0){
-    $hyperVAdminGroup =  Get-LocalGroup | Where-Object {$_.SID -eq "S-1-5-32-578" }
+$addedLocalUsers = @(Get-LocalUser | Where-Object { [int]$($_.SID -split '-' | Select-Object -Last 1) -ge '1000' })
+if ($addedLocalUsers.Count -gt 0) {
+    $hyperVAdminGroup = Get-LocalGroup | Where-Object { $_.SID -eq "S-1-5-32-578" }
     #$adminGroup =  Get-LocalGroup | Where-Object {$_.SID -eq "S-1-5-32-544" }
 
-      foreach ($localUser in $addedLocalUsers){
-        $isAdmin =  $null -ne $(Get-WmiObject win32_groupuser |  Where-Object {$_.groupcomponent -like '*"Administrators"'} | Where-Object { $_.PartComponent -like $($localUser | Select-Object -ExpandProperty Name) }) #work-around for powershell bug
+    foreach ($localUser in $addedLocalUsers) {
+        $isAdmin = $null -ne $(Get-WmiObject win32_groupuser |  Where-Object { $_.groupcomponent -like '*"Administrators"' } | Where-Object { $_.PartComponent -like $($localUser | Select-Object -ExpandProperty Name) }) #work-around for powershell bug
         Write-Verbose "$($localUser | Select-Object -ExpandProperty Name) part of Administrators group? $($isAdmin)"
-        $isHypervAdmin =@(Get-LocalGroupMember -Group $hyperVAdminGroup | Select-Object -Expand Name) -contains "$($env:COMPUTERNAME)\$($localUser | Select-Object -ExpandProperty Name)"
+        $isHypervAdmin = @(Get-LocalGroupMember -Group $hyperVAdminGroup | Select-Object -Expand Name) -contains "$($env:COMPUTERNAME)\$($localUser | Select-Object -ExpandProperty Name)"
         Write-Verbose "$($localUser | Select-Object -ExpandProperty Name) part of Hyper-V Administrators group? $($isHypervAdmin)"
 
         if (-not $isAdmin -and -not $isHypervAdmin -and `
@@ -169,8 +181,6 @@ foreach ($vm in $vms) {
         -SetValueScriptBlock { $vm | Set-VMMemory -Startup 2GB } `
         -RequiresVmStopped $true
 
-    #$assignedMemory.Startup -ge 6 * [math]::Pow(10, 8) 
-
     Write-Verbose "Verifying: Memory.DynamicMemoryEnabled == true"
     $vm | Set-HypervVmProperty -PropertyName "Memory - Dynamic Memory Enabled" `
         -GetCurrentValueScriptBlock { $assignedMemory | Select-Object -ExpandProperty DynamicMemoryEnabled } `
@@ -196,7 +206,7 @@ foreach ($vm in $vms) {
     }
 
     # Verify disk is vhdx not vhd
-    Write-Verbose "Verifying: HardDriveDisks.VMType == Dynamic"
+    Write-Verbose "Verifying: HardDriveDisks.<disk-name>.VMType == Dynamic"
     $hardDriveDisks = @($vm | Get-VMHardDiskDrive)
     foreach ($hardDriveDisk in $hardDriveDisks) {
         $diskPath = $hardDriveDisk | Select-Object -ExpandProperty Path
