@@ -1,7 +1,8 @@
   
 [CmdletBinding()]
 param (
-    [Parameter(Mandatory = $false)][switch]$Force
+    [Parameter(Mandatory = $false)][switch]$Force,
+    [Parameter(Mandatory = $false)][string]$ConfigFilePath
 )
 Set-StrictMode -Version Latest
 
@@ -14,7 +15,43 @@ $ErrorActionPreference = 'Stop'
 $YesToAll = $Force
 $NoToAll = $false
 
-# ### FUNCTIONS ###
+# ##### CLASSES ####
+
+
+class ConfigurationInfo {
+    [VmConfiguration[]] $VMConfigurations
+    ConfigurationInfo() {
+        $this.VMConfigurations = @()
+        <# Initialize the class. Use $this to reference the properties of the instance you are creating #>
+    }
+}
+
+class VmConfiguration {
+    [string] $Name
+    [VmConfigurationProperties] $Properties
+    
+}
+
+class VmConfigurationProperties {
+    [int]$ProcessorCount
+    [VMConfigurationMemoryProperties] $DynamicMemoryEnabled
+    [HardDriveDiskInformation[]] $HardDriveDisks
+
+}
+
+class VMConfigurationMemoryProperties {
+    [string] $Startup
+    [bool] $DynamicMemoryEnabled
+    [string] $Minimum
+    [string] $Maximum
+}
+
+class HardDriveDiskInformation {
+    [string] $Name
+    [String] $VMType
+}
+
+# ### FUNCTIONS ####
 
 function Get-ConfigurationSettings {
     [CmdletBinding()]
@@ -25,7 +62,7 @@ function Get-ConfigurationSettings {
     if (Test-Path $SettingsFilePath) {
         $settings = return Get-Content -Path $SettingsFilePath -ErrorAction SilentlyContinue | ConvertFrom-Json 
     }
-    return $settings
+    return [ConfigurationInfo] $settings
 }
 
 function Get-RunningAsAdministrator {
@@ -87,6 +124,12 @@ function Set-HypervVmProperty {
     }
 }
 
+if ($ConfigFilePath) {
+    $configs = Get-ConfigurationSettings -SettingsFilePath $ConfigFilePath
+}
+else {
+    $configs = New-Object ConfigurationInfo
+}
 
 Write-Host "Verify running as administrator."
 if (-not (Get-RunningAsAdministrator)) { Write-Error "Please re-run this script as Administrator." }
@@ -145,9 +188,19 @@ if ($savedStateVMs) {
 
 #For each VM
 foreach ($vm in $vms) {
+    $vmName = $vm.VMName
     Write-Host "============================="
-    Write-Host "`t$($vm.VMName)"
+    Write-Host "`t$($vmName)"
     Write-Host "============================="
+
+    #Config settings for VM
+    $currentConfig = $configs.VMConfigurations | Where-Object { $_.Name -eq $vmName }
+    if (-not $currentConfig) {
+        $currentConfig = New-Object -TypeName "VmConfiguration"
+        $currentConfig.Name = $vmName
+        $currentConfig.Properties = New-Object -TypeName "VmConfigurationProperties"
+        #TODO: finish declaration
+    }
 
     Write-Verbose "Verifying: AutomaticStopAction==ShutDown"
     $vm | Set-HypervVmProperty -PropertyName "AutomaticStopAction" `
