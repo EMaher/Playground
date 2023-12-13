@@ -29,13 +29,13 @@ class ConfigurationInfo {
 class VmConfiguration {
     [string] $Name
     [VmConfigurationProperties] $Properties
-    
+
 }
 
 class VmConfigurationProperties {
     [int]$ProcessorCount
-    [VMConfigurationMemoryProperties] $DynamicMemoryEnabled
-    [HardDriveDiskInformation[]] $HardDriveDisks
+    [VMConfigurationMemoryProperties] $Memory
+
 
 }
 
@@ -46,15 +46,12 @@ class VMConfigurationMemoryProperties {
     [string] $Maximum
 }
 
-class HardDriveDiskInformation {
-    [string] $Name
-    [String] $VMType
-}
 
 # ### FUNCTIONS ####
 
 function Get-ConfigurationSettings {
     [CmdletBinding()]
+    
     param(
         [string]$SettingsFilePath
     )
@@ -65,6 +62,29 @@ function Get-ConfigurationSettings {
     return [ConfigurationInfo] $settings
 }
 
+
+function Get-DefaultConfigurationSettings {
+    [CmdletBinding()]
+    [OutputType('ConfigurationInfo')]
+    param(
+        [string]$SettingsFilePath
+    )
+
+
+    return ([PSCustomObject][Ordered]@{
+        PSTypeName = 'ConfigurationInfo'
+        Name = ""
+        Properties = [PSCustomObject]@{
+            ProcessorCount = 2
+            Memory = [PSCustomObject]@{
+                Startup = 1GB
+                DynamicMemoryEnabled = $true
+                Minimim = 1GB
+                Maximum = 2GB
+            }
+        }
+    })
+}
 function Get-RunningAsAdministrator {
     [CmdletBinding()]
     param()
@@ -196,10 +216,8 @@ foreach ($vm in $vms) {
     #Config settings for VM
     $currentConfig = $configs.VMConfigurations | Where-Object { $_.Name -eq $vmName }
     if (-not $currentConfig) {
-        $currentConfig = New-Object -TypeName "VmConfiguration"
+        $currentConfig = Get-DefaultConfigurationSettings
         $currentConfig.Name = $vmName
-        $currentConfig.Properties = New-Object -TypeName "VmConfigurationProperties"
-        #TODO: finish declaration
     }
 
     Write-Verbose "Verifying: AutomaticStopAction==ShutDown"
@@ -211,50 +229,51 @@ foreach ($vm in $vms) {
         -RequiresVmStopped $true
 
 
-    Write-Verbose "Verifying: ProcessorCount > 1"
+    Write-Verbose "Verifying: ProcessorCount >= $($currentConfig.Properties.ProcessorCount)"
     $vm | Set-HypervVmProperty -PropertyName "ProcessorCount" `
         -GetCurrentValueScriptBlock { $vm | Select-Object -ExpandProperty ProcessorCount } `
-        -IsCurrentValueAcceptableScriptBlock { $vm.ProcessorCount -gt 1 } `
+        -IsCurrentValueAcceptableScriptBlock { $vm.ProcessorCount -ge $currentConfig.Properties.ProcessorCount } `
         -SetValueScriptBlock { 
-        if (!($number_of_vCPUs = `
-                    Read-Host "VM $( to $($vm.VMName)) has only has 1 virtual processor assigned to it. Many modern OSes require more. How many cores/virtual processors should be assigned? [max $($env:NUMBER_OF_PROCESSORS), default 1]")) {
-            $number_of_vCPUs = $default 
-        }
-        $number_of_vCPUs = [math]::Max(1, $number_of_vCPUs)
-        $number_of_vCPUs = [math]::Min($number_of_vCPUs, $env:NUMBER_OF_PROCESSORS)
-        $vm | Set-VM -ProcessorCount $number_of_vCPUs } `
+            if (!($number_of_vCPUs = `
+                        Read-Host "VM $( to $($vm.VMName)) has  has $($vm.ProcessorCount) virtual processor assigned to it. Many modern OSes require more. How many cores/virtual processors should be assigned? [max $($env:NUMBER_OF_PROCESSORS), default $($currentConfig.Properties.ProcessorCount)]")) {
+                $number_of_vCPUs = $currentConfig.Properties.ProcessorCount 
+            }
+            $number_of_vCPUs = [math]::Max(1, $number_of_vCPUs)
+            $number_of_vCPUs = [math]::Min($number_of_vCPUs, $env:NUMBER_OF_PROCESSORS)
+            $vm | Set-VM -ProcessorCount $number_of_vCPUs 
+        } `
         -RequiresVmStopped $true
    
 
-    Write-Verbose "Verifying: Memory.Startup > 512MB"
+    Write-Verbose "Verifying: Memory.Startup > $($currentConfig.Memory.Startup)"
     $assignedMemory = $vm | Get-VMMemory
     $vm | Set-HypervVmProperty -PropertyName "Memory - Startup" `
         -GetCurrentValueScriptBlock { $assignedMemory | Select-Object -ExpandProperty Startup } `
-        -IsCurrentValueAcceptableScriptBlock { $assignedMemory.Startup -gt 512MB } `
-        -SetValueScriptBlock { $vm | Set-VMMemory -Startup 2GB } `
+        -IsCurrentValueAcceptableScriptBlock { $assignedMemory.Startup -ge $currentConfig.Memory.Startup } `
+        -SetValueScriptBlock { $vm | Set-VMMemory -Startup $currentConfig.Memory.Startup  } `
         -RequiresVmStopped $true
 
-    Write-Verbose "Verifying: Memory.DynamicMemoryEnabled == true"
+    Write-Verbose "Verifying: Memory.DynamicMemoryEnabled == $($currentConfig.Memory.DynamicMemoryEnabled)"
     $vm | Set-HypervVmProperty -PropertyName "Memory - Dynamic Memory Enabled" `
         -GetCurrentValueScriptBlock { $assignedMemory | Select-Object -ExpandProperty DynamicMemoryEnabled } `
         -GetDesiredValueScriptBlock { $true } `
-        -IsCurrentValueAcceptableScriptBlock { $assignedMemory.DynamicMemoryEnabled -eq $true } `
-        -SetValueScriptBlock { $vm | Set-VMMemory -DynamicMemoryEnabled $true } `
+        -IsCurrentValueAcceptableScriptBlock { $assignedMemory.DynamicMemoryEnabled -eq $($($currentConfig.Memory.DynamicMemoryEnabled)) } `
+        -SetValueScriptBlock { $vm | Set-VMMemory -DynamicMemoryEnabled $($($currentConfig.Memory.DynamicMemoryEnabled)) } `
         -RequiresVmStopped $true
 
     if ($assignedMemory | Select-Object -ExpandProperty DynamicMemoryEnabled) {
-        Write-Verbose "Verifying: Memory.Minimim >= 1GB"
+        Write-Verbose "Verifying: Memory.Minimim >= $($currentConfig.Memory.Minimum)"
         $vm | Set-HypervVmProperty -PropertyName "Memory - Minimum" `
             -GetCurrentValueScriptBlock { $assignedMemory | Select-Object -ExpandProperty Minimum } `
-            -IsCurrentValueAcceptableScriptBlock { $($assignedMemory | Select-Object -ExpandProperty Minimum ) -ge 1GB } `
-            -SetValueScriptBlock { $vm | Set-VMMemory -Minimum 2GB } `
+            -IsCurrentValueAcceptableScriptBlock { $($assignedMemory | Select-Object -ExpandProperty Minimum ) -ge $($currentConfig.Memory.Minimum) } `
+            -SetValueScriptBlock { $vm | Set-VMMemory -Minimum $($currentConfig.Memory.Minimum) } `
             -RequiresVmStopped $true 
 
-        Write-Verbose "Verifying: Memory.Maximum >= 2GB"
+        Write-Verbose "Verifying: Memory.Maximum >= $($currentConfig.Memory.Maximum)"
         $vm | Set-HypervVmProperty -PropertyName "Memory - Maximum" `
             -GetCurrentValueScriptBlock { $assignedMemory | Select-Object -ExpandProperty Maximum } `
-            -IsCurrentValueAcceptableScriptBlock { $($assignedMemory | Select-Object -ExpandProperty Maximum ) -ge 2GB } `
-            -SetValueScriptBlock { $vm | Set-VMMemory -Maximum 4GB } `
+            -IsCurrentValueAcceptableScriptBlock { $($assignedMemory | Select-Object -ExpandProperty Maximum ) -ge $($currentConfig.Memory.Maximum) } `
+            -SetValueScriptBlock { $vm | Set-VMMemory -Maximum $($currentConfig.Memory.Maximum) } `
             -RequiresVmStopped $true 
     }
 

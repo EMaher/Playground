@@ -10,13 +10,7 @@
                     "DynamicMemoryEnabled": true,
                     "Minimim": "512MB",
                     "Maximum": "1GB"
-                },
-                "HardDriveDisks": [
-                    {
-                        "Name": "metaspoitable",
-                        "VMType": "Dynamic"
-                    }
-                ]
+                }
             }
         }
     ]
