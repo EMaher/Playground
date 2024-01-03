@@ -152,7 +152,7 @@ else {
 }
 
 
-$temp = Get-DefaultConfigurationSettings
+#$temp = Get-DefaultConfigurationSettings
 
 
 Write-Host "Verify running as administrator.`n"
@@ -241,12 +241,14 @@ foreach ($vm in $vms) {
     Write-Verbose "Verifying: ProcessorCount >= $($currentConfig.Properties.ProcessorCount)"
     $vm | Set-HypervVmProperty -PropertyName "ProcessorCount" `
         -GetCurrentValueScriptBlock { $vm | Select-Object -ExpandProperty ProcessorCount } `
+        -GetDesiredValueScriptBlock {$currentConfig.Properties.ProcessorCount } `
         -IsCurrentValueAcceptableScriptBlock { $vm.ProcessorCount -ge $currentConfig.Properties.ProcessorCount } `
         -SetValueScriptBlock { 
-        if (!($number_of_vCPUs = `
-                    Read-Host "VM '$($vm.VMName)' has $($vm.ProcessorCount) virtual processor assigned to it.  [max $($env:NUMBER_OF_PROCESSORS), default $($currentConfig.Properties.ProcessorCount)]")) {
-            $number_of_vCPUs = $currentConfig.Properties.ProcessorCount 
-        }
+        # if (!($number_of_vCPUs = `
+        #             Read-Host "VM '$($vm.VMName)' has $($vm.ProcessorCount) virtual processor assigned to it.  [max $($env:NUMBER_OF_PROCESSORS), default $($currentConfig.Properties.ProcessorCount)]")) {
+        #     $number_of_vCPUs = $currentConfig.Properties.ProcessorCount 
+        # }
+        $number_of_vCPUs = $currentConfig.Properties.ProcessorCount
         $number_of_vCPUs = [math]::Max(1, $number_of_vCPUs)
         $number_of_vCPUs = [math]::Min($number_of_vCPUs, $env:NUMBER_OF_PROCESSORS)
         $vm | Set-VM -ProcessorCount $number_of_vCPUs 
@@ -258,7 +260,8 @@ foreach ($vm in $vms) {
     $desiredStartupMemory = Invoke-Expression($currentConfig.Properties.Memory.Startup)
     Write-Verbose "Verifying: Memory.Startup > $($desiredStartupMemory)"
     $vm | Set-HypervVmProperty -PropertyName "Memory - Startup" `
-        -GetCurrentValueScriptBlock { $assignedMemory | Select-Object -ExpandProperty Startup } `
+        -GetCurrentValueScriptBlock { "$($($assignedMemory | Select-Object -ExpandProperty Startup) / 1GB) GB" } `
+        -GetDesiredValueScriptBlock { "$($desiredStartupMemory / 1GB) GB"} `
         -IsCurrentValueAcceptableScriptBlock { $assignedMemory.Startup -ge $desiredStartupMemory } `
         -SetValueScriptBlock { $vm | Set-VMMemory -Startup  $desiredStartupMemory } `
         -RequiresVmStopped $true
@@ -275,7 +278,8 @@ foreach ($vm in $vms) {
         $desiredMinimumMemory = Invoke-Expression($currentConfig.Properties.Memory.Minimum)
         Write-Verbose "Verifying: Memory.Minimum >= $desiredMinimumMemory"
         $vm | Set-HypervVmProperty -PropertyName "Memory - Minimum" `
-            -GetCurrentValueScriptBlock { $assignedMemory | Select-Object -ExpandProperty Minimum } `
+            -GetCurrentValueScriptBlock { "$($($assignedMemory | Select-Object -ExpandProperty Minimum) / 1GB) GB" } `
+            -GetDesiredValueScriptBlock { "$($desiredMinimumMemory / 1GB) GB"} `
             -IsCurrentValueAcceptableScriptBlock { $($assignedMemory | Select-Object -ExpandProperty Minimum ) -ge $desiredMinimumMemory } `
             -SetValueScriptBlock { $vm | Set-VMMemory -Minimum $desiredMinimumMemory } `
             -RequiresVmStopped $true 
@@ -284,31 +288,43 @@ foreach ($vm in $vms) {
         Write-Verbose "Verifying: Memory.Maximum >= $desiredMaximumMemory"
         $vm | Set-HypervVmProperty -PropertyName "Memory - Maximum" `
             -GetCurrentValueScriptBlock { $assignedMemory | Select-Object -ExpandProperty Maximum } `
+            -GetDesiredValueScriptBlock {"$($desiredMaximumMemory / 1GB) GB"} `
             -IsCurrentValueAcceptableScriptBlock { $($assignedMemory | Select-Object -ExpandProperty Maximum ) -ge $desiredMaximumMemory } `
             -SetValueScriptBlock { $vm | Set-VMMemory -Maximum $desiredMaximumMemory } `
             -RequiresVmStopped $true 
     }
 
     # Verify disk is vhdx not vhd
-    Write-Verbose "Verifying: HardDriveDisks.<disk-name>.VMType == Dynamic"
+
     $hardDriveDisks = @($vm | Get-VMHardDiskDrive)
     foreach ($hardDriveDisk in $hardDriveDisks) {
         $diskPath = $hardDriveDisk | Select-Object -ExpandProperty Path
+        $diskName = [System.IO.Path]::GetFileNameWithoutExtension($diskPath)
+        Write-Verbose "Verifying: HardDriveDisks.$diskName.VMType == Dynamic"
 
-        $vm | Set-HypervVmProperty -PropertyName "Disk - VhdType" `
+        $vm | Set-HypervVmProperty -PropertyName "Disk '$diskName' - VhdType" `
             -GetCurrentValueScriptBlock { Get-VHD $diskPath | Select-Object -ExpandProperty VhdFormat } `
             -GetDesiredValueScriptBlock { "VHDX" } `
             -IsCurrentValueAcceptableScriptBlock { $(Get-VHD $diskPath | Select-Object -ExpandProperty VhdFormat) -eq "VHDX" } `
             -SetValueScriptBlock { 
-            $newDiskPath = Join-Path $([System.IO.Path]::GetDirectoryName($diskPath)) "$([System.IO.Path]::GetFileNameWithoutExtension($diskPath)).vhdx"
+            $newDiskPath = Join-Path $([System.IO.Path]::GetDirectoryName($diskPath)) "$($diskName).vhdx"
+            if (Test-Path $newDiskPath) {
+                Write-Error "Unable to convert '$($diskPath)' to '$($newDiskPath). '$($newDiskPath) exists." -ErrorAction Continue
+            }
+            else {
+                $controllerLocation = $hardDriveDisk | Select-Object -ExpandProperty ControllerLocation
+                $controllerNumber = $hardDriveDisk | Select-Object -ExpandProperty ControllerNumber
+                $controllerType = $hardDriveDisk | Select-Object -ExpandProperty ControllerType
+                    
 
-            $hardDriveDisk | Remove-VMHardDiskDrive
-            Convert-VHD -Path $diskPath -DestinationPath $newDiskPath -VHDType Dynamic 
-            #Resize-VHD -Path $diskPath -ToMinimumSize
-            Set-VMHardDiskDrive -VMName $vm.VMName -Path $newDiskPath
+                $hardDriveDisk | Remove-VMHardDiskDrive
+                Convert-VHD -Path $diskPath -DestinationPath $newDiskPath -VHDType Dynamic 
+
+                Add-VMHardDiskDrive -VMName $vm.VMName -Path $newDiskPath -ControllerLocation $controllerLocation -ControllerType $controllerType -ControllerNumber $controllerNumber                    
+            }
 
         } `
-        -RequiresVmStopped $true 
+            -RequiresVmStopped $true 
     }
 
     Write-Host ""
