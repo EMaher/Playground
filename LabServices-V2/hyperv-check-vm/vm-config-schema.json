@@ -1,89 +1,51 @@
 {
-    "type": "object",
-    "properties": {
-      "Configurations": {
-        "type": "array",
-        "items": [
-          {
-            "type": "object",
-            "properties": {
-              "Name": {
-                "type": "string"
-              },
-              "Properties": {
-                "type": "object",
-                "properties": {
-                  "ProcessorCount": {
-                    "type": "integer"
-                  },
-                  "Memory": {
-                    "type": "object",
-                    "properties": {
-                      "Startup": {
-                        "type": "string"
-                      },
-                      "DynamicMemoryEnabled": {
-                        "type": "boolean"
-                      },
-                      "Minimim": {
-                        "type": "string"
-                      },
-                      "Maximum": {
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "Startup",
-                      "DynamicMemoryEnabled",
-                      "Minimim",
-                      "Maximum"
-                    ]
-                  },
-                  "HardDriveDisks": {
-                    "type": "array",
-                    "items": [
-                      {
-                        "type": "object",
-                        "properties": {
-                          "Name": {
-                            "type": "string"
-                          },
-                          "VMType": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "Name",
-                          "VMType"
-                        ]
-                      }
-                    ]
-                  }
-                },
-                "required": [
-                  "ProcessorCount",
-                  "Memory",
-                  "HardDriveDisks"
-                ]
-              }
+  "$schema": "http://json-schema.org/draft-04/schema#",
+  "type": "object",
+  "properties": {
+    "VMConfigurations": {
+      "type": "array",
+      "items": [
+        {
+          "type": "object",
+          "properties": {
+            "Name": {
+              "type": "string"
             },
-            "required": [
-              "Name",
-              "Properties"
-            ]
-          }
-        ]
-      },
-      "HyperVUsers": {
-        "type": "array",
-        "items": [
-          {
-            "type": "string"
-          }
-        ]
-      }
-    },
-    "required": [
-      "Configurations"
-    ]
-  }
+            "Properties": {
+              "type": "object",
+              "properties": {
+                "ProcessorCount": {
+                  "type": "integer"
+                },
+                "Memory": {
+                  "type": "object",
+                  "properties": {
+                    "Startup": {
+                      "type": "string"
+                    },
+                    "DynamicMemoryEnabled": {
+                      "type": "boolean"
+                    },
+                    "Minimum": {
+                      "type": "string"
+                    },
+                    "Maximum": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "Name",
+            "Properties"
+          ]
+        }
+      ]
+    }
+  },
+  "required": [
+    "VMConfigurations"
+  ]
+}

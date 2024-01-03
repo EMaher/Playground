@@ -10,19 +10,16 @@ Set-StrictMode -Version Latest
 
 $ErrorActionPreference = 'Stop' 
 
-
 # Configure variables for ShouldContinue prompts
 $YesToAll = $Force
 $NoToAll = $false
 
 # ##### CLASSES ####
 
-
 class ConfigurationInfo {
     [VmConfiguration[]] $VMConfigurations
     ConfigurationInfo() {
         $this.VMConfigurations = @()
-        <# Initialize the class. Use $this to reference the properties of the instance you are creating #>
     }
 }
 
@@ -65,25 +62,28 @@ function Get-ConfigurationSettings {
 
 function Get-DefaultConfigurationSettings {
     [CmdletBinding()]
-    [OutputType('ConfigurationInfo')]
+    [OutputType('VmConfiguration')]
     param(
         [string]$SettingsFilePath
     )
 
-
-    return ([PSCustomObject][Ordered]@{
-        PSTypeName = 'ConfigurationInfo'
-        Name = ""
-        Properties = [PSCustomObject]@{
-            ProcessorCount = 2
-            Memory = [PSCustomObject]@{
-                Startup = 1GB
-                DynamicMemoryEnabled = $true
-                Minimim = 1GB
-                Maximum = 2GB
-            }
+    $defaultConfigString = @"
+{
+    "Name": "temp",
+    "Properties": {
+        "ProcessorCount": 2,
+        "Memory": {
+            "Startup": "2GB",
+            "DynamicMemoryEnabled": true,
+            "Minimum": "2GB",
+            "Maximum": "4GB"
         }
-    })
+    }
+}
+"@
+
+    return [VmConfiguration] $($defaultConfigString | ConvertFrom-Json)
+
 }
 function Get-RunningAsAdministrator {
     [CmdletBinding()]
@@ -151,7 +151,11 @@ else {
     $configs = New-Object ConfigurationInfo
 }
 
-Write-Host "Verify running as administrator."
+
+$temp = Get-DefaultConfigurationSettings
+
+
+Write-Host "Verify running as administrator.`n"
 if (-not (Get-RunningAsAdministrator)) { Write-Error "Please re-run this script as Administrator." }
 
 # *** CHECK NORMAL USER SETTINGS ***
@@ -166,17 +170,20 @@ if ($addedLocalUsers.Count -gt 0) {
     #$adminGroup =  Get-LocalGroup | Where-Object {$_.SID -eq "S-1-5-32-544" }
 
     foreach ($localUser in $addedLocalUsers) {
+        $localUserName = $localUser | Select-Object -ExpandProperty Name
         $isAdmin = $null -ne $(Get-WmiObject win32_groupuser |  Where-Object { $_.groupcomponent -like '*"Administrators"' } | Where-Object { $_.PartComponent -like $($localUser | Select-Object -ExpandProperty Name) }) #work-around for powershell bug
-        Write-Verbose "$($localUser | Select-Object -ExpandProperty Name) part of Administrators group? $($isAdmin)"
+        Write-Verbose "$($localUserName) part of Administrators group? $($isAdmin)"
         $isHypervAdmin = @(Get-LocalGroupMember -Group $hyperVAdminGroup | Select-Object -Expand Name) -contains "$($env:COMPUTERNAME)\$($localUser | Select-Object -ExpandProperty Name)"
-        Write-Verbose "$($localUser | Select-Object -ExpandProperty Name) part of Hyper-V Administrators group? $($isHypervAdmin)"
+        Write-Verbose "$($localUserName) part of Hyper-V Administrators group? $($isHypervAdmin)"
 
-        if (-not $isAdmin -and -not $isHypervAdmin -and `
-            ($PSCmdlet.ShouldContinue("User '$($localUser | Select-Object -ExpandProperty Name)' can not use Hyper-V.  Add user to Hyper-V Administrators Group?", "Add user to Hyper-V Administrators Group?", [ref] $YesToAll, [ref] $NoToAll ))) {
-            
-            Add-LocalGroupMember -Group $hyperVAdminGroup -Member $localUser
-            Write-Verbose "$($localUser | Select-Object -ExpandProperty Name) added to Hyper-V Administrators group."
-            
+        if ($isAdmin -or $isHypervAdmin) {
+            Write-Host "Verified user '$($localUserName)' has permissions to use Hyper-V."
+        }
+        else {
+            if ($PSCmdlet.ShouldContinue("User '$($localUserName)' can not use Hyper-V.  Add user to Hyper-V Administrators Group?", "Add user to Hyper-V Administrators Group?", [ref] $YesToAll, [ref] $NoToAll )) {          
+                Add-LocalGroupMember -Group $hyperVAdminGroup -Member $localUser
+                Write-Host "$($localUserName) added to Hyper-V Administrators group."   
+            }  
         }
     }
 }
@@ -219,6 +226,8 @@ foreach ($vm in $vms) {
         $currentConfig = Get-DefaultConfigurationSettings
         $currentConfig.Name = $vmName
     }
+    Write-Debug $currentConfig | Format-Custom
+    
 
     Write-Verbose "Verifying: AutomaticStopAction==ShutDown"
     $vm | Set-HypervVmProperty -PropertyName "AutomaticStopAction" `
@@ -234,46 +243,49 @@ foreach ($vm in $vms) {
         -GetCurrentValueScriptBlock { $vm | Select-Object -ExpandProperty ProcessorCount } `
         -IsCurrentValueAcceptableScriptBlock { $vm.ProcessorCount -ge $currentConfig.Properties.ProcessorCount } `
         -SetValueScriptBlock { 
-            if (!($number_of_vCPUs = `
-                        Read-Host "VM $( to $($vm.VMName)) has  has $($vm.ProcessorCount) virtual processor assigned to it. Many modern OSes require more. How many cores/virtual processors should be assigned? [max $($env:NUMBER_OF_PROCESSORS), default $($currentConfig.Properties.ProcessorCount)]")) {
-                $number_of_vCPUs = $currentConfig.Properties.ProcessorCount 
-            }
-            $number_of_vCPUs = [math]::Max(1, $number_of_vCPUs)
-            $number_of_vCPUs = [math]::Min($number_of_vCPUs, $env:NUMBER_OF_PROCESSORS)
-            $vm | Set-VM -ProcessorCount $number_of_vCPUs 
-        } `
+        if (!($number_of_vCPUs = `
+                    Read-Host "VM '$($vm.VMName)' has $($vm.ProcessorCount) virtual processor assigned to it.  [max $($env:NUMBER_OF_PROCESSORS), default $($currentConfig.Properties.ProcessorCount)]")) {
+            $number_of_vCPUs = $currentConfig.Properties.ProcessorCount 
+        }
+        $number_of_vCPUs = [math]::Max(1, $number_of_vCPUs)
+        $number_of_vCPUs = [math]::Min($number_of_vCPUs, $env:NUMBER_OF_PROCESSORS)
+        $vm | Set-VM -ProcessorCount $number_of_vCPUs 
+    } `
         -RequiresVmStopped $true
    
 
-    Write-Verbose "Verifying: Memory.Startup > $($currentConfig.Memory.Startup)"
     $assignedMemory = $vm | Get-VMMemory
+    $desiredStartupMemory = Invoke-Expression($currentConfig.Properties.Memory.Startup)
+    Write-Verbose "Verifying: Memory.Startup > $($desiredStartupMemory)"
     $vm | Set-HypervVmProperty -PropertyName "Memory - Startup" `
         -GetCurrentValueScriptBlock { $assignedMemory | Select-Object -ExpandProperty Startup } `
-        -IsCurrentValueAcceptableScriptBlock { $assignedMemory.Startup -ge $currentConfig.Memory.Startup } `
-        -SetValueScriptBlock { $vm | Set-VMMemory -Startup $currentConfig.Memory.Startup  } `
+        -IsCurrentValueAcceptableScriptBlock { $assignedMemory.Startup -ge $desiredStartupMemory } `
+        -SetValueScriptBlock { $vm | Set-VMMemory -Startup  $desiredStartupMemory } `
         -RequiresVmStopped $true
 
-    Write-Verbose "Verifying: Memory.DynamicMemoryEnabled == $($currentConfig.Memory.DynamicMemoryEnabled)"
+    Write-Verbose "Verifying: Memory.DynamicMemoryEnabled == $($currentConfig.Properties.Memory.DynamicMemoryEnabled)"
     $vm | Set-HypervVmProperty -PropertyName "Memory - Dynamic Memory Enabled" `
         -GetCurrentValueScriptBlock { $assignedMemory | Select-Object -ExpandProperty DynamicMemoryEnabled } `
         -GetDesiredValueScriptBlock { $true } `
-        -IsCurrentValueAcceptableScriptBlock { $assignedMemory.DynamicMemoryEnabled -eq $($($currentConfig.Memory.DynamicMemoryEnabled)) } `
-        -SetValueScriptBlock { $vm | Set-VMMemory -DynamicMemoryEnabled $($($currentConfig.Memory.DynamicMemoryEnabled)) } `
+        -IsCurrentValueAcceptableScriptBlock { $assignedMemory.DynamicMemoryEnabled -eq $($($currentConfig.Properties.Memory.DynamicMemoryEnabled)) } `
+        -SetValueScriptBlock { $vm | Set-VMMemory -DynamicMemoryEnabled $($($currentConfig.Properties.Memory.DynamicMemoryEnabled)) } `
         -RequiresVmStopped $true
 
     if ($assignedMemory | Select-Object -ExpandProperty DynamicMemoryEnabled) {
-        Write-Verbose "Verifying: Memory.Minimim >= $($currentConfig.Memory.Minimum)"
+        $desiredMinimumMemory = Invoke-Expression($currentConfig.Properties.Memory.Minimum)
+        Write-Verbose "Verifying: Memory.Minimum >= $desiredMinimumMemory"
         $vm | Set-HypervVmProperty -PropertyName "Memory - Minimum" `
             -GetCurrentValueScriptBlock { $assignedMemory | Select-Object -ExpandProperty Minimum } `
-            -IsCurrentValueAcceptableScriptBlock { $($assignedMemory | Select-Object -ExpandProperty Minimum ) -ge $($currentConfig.Memory.Minimum) } `
-            -SetValueScriptBlock { $vm | Set-VMMemory -Minimum $($currentConfig.Memory.Minimum) } `
+            -IsCurrentValueAcceptableScriptBlock { $($assignedMemory | Select-Object -ExpandProperty Minimum ) -ge $desiredMinimumMemory } `
+            -SetValueScriptBlock { $vm | Set-VMMemory -Minimum $desiredMinimumMemory } `
             -RequiresVmStopped $true 
 
-        Write-Verbose "Verifying: Memory.Maximum >= $($currentConfig.Memory.Maximum)"
+        $desiredMaximumMemory = Invoke-Expression($currentConfig.Properties.Memory.Maximum)
+        Write-Verbose "Verifying: Memory.Maximum >= $desiredMaximumMemory"
         $vm | Set-HypervVmProperty -PropertyName "Memory - Maximum" `
             -GetCurrentValueScriptBlock { $assignedMemory | Select-Object -ExpandProperty Maximum } `
-            -IsCurrentValueAcceptableScriptBlock { $($assignedMemory | Select-Object -ExpandProperty Maximum ) -ge $($currentConfig.Memory.Maximum) } `
-            -SetValueScriptBlock { $vm | Set-VMMemory -Maximum $($currentConfig.Memory.Maximum) } `
+            -IsCurrentValueAcceptableScriptBlock { $($assignedMemory | Select-Object -ExpandProperty Maximum ) -ge $desiredMaximumMemory } `
+            -SetValueScriptBlock { $vm | Set-VMMemory -Maximum $desiredMaximumMemory } `
             -RequiresVmStopped $true 
     }
 
@@ -288,15 +300,15 @@ foreach ($vm in $vms) {
             -GetDesiredValueScriptBlock { "VHDX" } `
             -IsCurrentValueAcceptableScriptBlock { $(Get-VHD $diskPath | Select-Object -ExpandProperty VhdFormat) -eq "VHDX" } `
             -SetValueScriptBlock { 
-            $newDiskPath = Join-Path $(Split-Path $diskPath) "$([Path]::GetFileNameWithoutExtension($diskPath)).vhdx"
+            $newDiskPath = Join-Path $([System.IO.Path]::GetDirectoryName($diskPath)) "$([System.IO.Path]::GetFileNameWithoutExtension($diskPath)).vhdx"
 
             $hardDriveDisk | Remove-VMHardDiskDrive
             Convert-VHD -Path $diskPath -DestinationPath $newDiskPath -VHDType Dynamic 
-            Resize-VHD -Path $diskPath -ToMinimumSize
+            #Resize-VHD -Path $diskPath -ToMinimumSize
             Set-VMHardDiskDrive -VMName $vm.VMName -Path $newDiskPath
 
         } `
-            -RequiresVmStopped $true 
+        -RequiresVmStopped $true 
     }
 
     Write-Host ""
@@ -327,7 +339,7 @@ foreach ($vm in $vms) {
 }
 
 Write-Host "******************************"
-if ($PSCmdlet.ShouldContinue("Restart all Hyper-V VMs to ensure all updated settings are in effect?", "Restart Hyper-V VMs)?", [ref] $YesToAll, [ref] $NoToAll )) {
+if ($PSCmdlet.ShouldContinue("Restart all Hyper-V VMs to ensure all updated settings are in effect?", "Restart Hyper-V VMs?", [ref] $YesToAll, [ref] $NoToAll )) {
     foreach ($vm in $vms) {
         $vm | Stop-VM -Force -WarningAction SilentlyContinue
         $vm | Start-VM -WarningAction Continue

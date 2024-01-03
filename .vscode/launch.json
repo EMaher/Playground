@@ -15,7 +15,7 @@
             "name": "PowerShell: Launch Check VM",
             "type": "PowerShell",
             "request": "launch",
-            "script": "${workspaceFolder}/LabServices-V2/hyperv-check-vm/Test-HypervVmConfig.ps1 -ConfigFilePath  ${workspaceFolder}/LabServices-V2/hyperv-check-vm/ethical-hacking-vm-config.json",
+            "script": "${workspaceFolder}/LabServices-V2/hyperv-check-vm/Test-HypervVmConfig.ps1 -ConfigFilePath  ${workspaceFolder}/LabServices-V2/hyperv-check-vm/ethical-hacking-vm-config.json -Verbose",
             "cwd": "${file}"
         }
     ]

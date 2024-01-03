@@ -8,7 +8,7 @@
                 "Memory": {
                     "Startup": "512MB",
                     "DynamicMemoryEnabled": true,
-                    "Minimim": "512MB",
+                    "Minimum": "512MB",
                     "Maximum": "1GB"
                 }
             }
