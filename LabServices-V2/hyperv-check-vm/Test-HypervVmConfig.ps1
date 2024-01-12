@@ -1,4 +1,4 @@
-<#
+ <#
 The MIT License (MIT)
 Copyright (c) Microsoft Corporation  
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
@@ -78,7 +78,7 @@ function Get-DefaultConfigurationSettings {
 
     $defaultConfigString = @"
 {
-    "Name": "temp",
+    "Name": "default-vm-config",
     "Properties": {
         "ProcessorCount": 2,
         "Memory": {
@@ -90,6 +90,8 @@ function Get-DefaultConfigurationSettings {
     }
 }
 "@
+
+    Write-Verbose "Default configuration: `n$($defaultConfigString)"
 
     return [VmConfiguration] $($defaultConfigString | ConvertFrom-Json)
 
@@ -153,6 +155,26 @@ function Set-HypervVmProperty {
     }
 }
 
+<#
+.SYNOPSIS
+Returns true is current machine is a Windows Server machine and false otherwise.
+#>
+function Get-RunningServerOperatingSystem {
+    [CmdletBinding()]
+    param()
+
+    return ($null -ne $(Get-Module -ListAvailable -Name 'servermanager') )
+}
+
+
+function Get-DhcpInstalled{
+    if ($(Get-RunningServerOperatingSystem) -and $(Get-WindowsFeature -Name 'DHCP')){
+        return   $($(Get-WindowsFeature -Name 'DHCP') | Select-Object -ExpandProperty Installed)
+    }else{
+        return $false
+    }
+}
+
 ####### Main Execution ##################################################################
 
 if ($ConfigFilePath) {
@@ -195,18 +217,39 @@ if ($addedLocalUsers.Count -gt 0) {
     }
 }
 
-Write-Host ""
+Write-Host "Permission check completed.`n"
+
+if (Get-RunningServerOperatingSystem){
 
 # *** CHECK VM CONFIGURATIONS  ***
 
-# TODO: Take VM/OS list to verify against known minimum configurations.
+Write-Host "*************************************"
+Write-Host "*        Testing Network Settings   *"
+Write-Host "*************************************"
+
+    if (Get-DhcpInstalled){
+    $warningText = 
+@"
+Installing DHCP role on an Azure VM is not a supported scenario.
+See https://learn.microsoft.com/azure/virtual-network/virtual-networks-faq#can-i-deploy-a-dhcp-server-in-a-vnet
+
+It is recommended to unistall the DHCP role and modify network adapter settings for Hyper-V VMs for internet connectivity.
+"@
+            
+    }
+    Write-Warning $warningText
+
+}
+Write-Host "Network check completed.`n"
+
+# *** CHECK VM CONFIGURATIONS  ***
+$vms = @(Get-VM)
+
+if ($vms.Count -gt 0){
 
 Write-Host "******************************"
 Write-Host "*        Testing VMs         *"
 Write-Host "******************************"
-
-$vms = Get-VM
-
 
 # Warn if any VMs are in saved state
 $savedStateVMs = @($vms | Where-Object { $_.State -eq "Saved" })
@@ -334,37 +377,41 @@ foreach ($vm in $vms) {
             -RequiresVmStopped $true 
     }
 
-    Write-Host ""
+    Write-Host "Testing Hyper-V VMs completed.`n"
 }
 
-Write-Host "******************************"
-Write-Host "*           RESULTS          *"
-Write-Host "******************************"
 
-# List current status
-foreach ($vm in $vms) {
-    Write-Host "============================="
-    Write-Host "`t$($vm.VMName)"
-    Write-Host "============================="
-    Write-Host "`tState: $($vm | Select-Object -ExpandProperty State)"
-    Write-Host "`tAutomaticStopAction: $($vm | Select-Object -ExpandProperty AutomaticStopAction)"
-    Write-Host "`tvCPU(s): $($vm | Select-Object -ExpandProperty ProcessorCount)"
-    Write-Host "`tMemory - Startup: $($vm | Get-VMMemory | Select-Object -ExpandProperty Startup)"
-    Write-Host "`tMemory - Dynamic Memory Enabled: $($vm | Get-VMMemory | Select-Object -ExpandProperty DynamicMemoryEnabled)"
-    Write-Host "`tMemory - Minimum: $($vm | Get-VMMemory | Select-Object -ExpandProperty Minimum)"
-    Write-Host "`tMemory - Maximum: $($vm | Get-VMMemory | Select-Object -ExpandProperty Maximum)"
-    $hardDriveDisks = @($vm | Get-VMHardDiskDrive)
-    foreach ($hardDriveDisk in $hardDriveDisks) {
-        $diskPath = $hardDriveDisk | Select-Object -ExpandProperty Path
-        Write-Host "`tDisk - $([System.IO.Path]::GetFileNameWithoutExtension($diskPath)): $(Get-VHD $diskPath | Select-Object -ExpandProperty VhdFormat)"
-    }
+    Write-Host "******************************"
+    Write-Host "*           RESULTS          *"
+    Write-Host "******************************"
 
-}
-
-Write-Host "******************************"
-if ($PSCmdlet.ShouldContinue("Restart all Hyper-V VMs to ensure all updated settings are in effect?", "Restart Hyper-V VMs?", [ref] $YesToAll, [ref] $NoToAll )) {
+    # List current status
     foreach ($vm in $vms) {
-        $vm | Stop-VM -Force -WarningAction SilentlyContinue
-        $vm | Start-VM -WarningAction Continue
+        Write-Host "============================="
+        Write-Host "`t$($vm.VMName)"
+        Write-Host "============================="
+        Write-Host "`tState: $($vm | Select-Object -ExpandProperty State)"
+        Write-Host "`tAutomaticStopAction: $($vm | Select-Object -ExpandProperty AutomaticStopAction)"
+        Write-Host "`tvCPU(s): $($vm | Select-Object -ExpandProperty ProcessorCount)"
+        Write-Host "`tMemory - Startup: $($vm | Get-VMMemory | Select-Object -ExpandProperty Startup)"
+        Write-Host "`tMemory - Dynamic Memory Enabled: $($vm | Get-VMMemory | Select-Object -ExpandProperty DynamicMemoryEnabled)"
+        Write-Host "`tMemory - Minimum: $($vm | Get-VMMemory | Select-Object -ExpandProperty Minimum)"
+        Write-Host "`tMemory - Maximum: $($vm | Get-VMMemory | Select-Object -ExpandProperty Maximum)"
+        $hardDriveDisks = @($vm | Get-VMHardDiskDrive)
+        foreach ($hardDriveDisk in $hardDriveDisks) {
+            $diskPath = $hardDriveDisk | Select-Object -ExpandProperty Path
+            Write-Host "`tDisk - $([System.IO.Path]::GetFileNameWithoutExtension($diskPath)): $(Get-VHD $diskPath | Select-Object -ExpandProperty VhdFormat)"
+        }
+
     }
-}
+    Write-Host ""
+
+    Write-Host "******************************"
+        if ($PSCmdlet.ShouldContinue("Restart all Hyper-V VMs to ensure all updated settings are in effect?", "Restart Hyper-V VMs?", [ref] $YesToAll, [ref] $NoToAll )) {
+            foreach ($vm in $vms) {
+                $vm | Stop-VM -Force -WarningAction SilentlyContinue
+                $vm | Start-VM -WarningAction Continue
+                Write-Verbose "Restarted $($vm.VMName)."
+            }
+        }
+} 

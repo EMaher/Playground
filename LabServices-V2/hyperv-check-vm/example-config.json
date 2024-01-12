@@ -2,7 +2,7 @@
     "$schema": "https://raw.githubusercontent.com/EMaher/Playground/main/LabServices-V2/hyperv-check-vm/vm-config-schema.json",
     "VMConfigurations": [
         {
-            "Name": "metasploitable",
+            "Name": "my-vm",
             "Properties": {
                 "ProcessorCount": 1,
                 "Memory": {
