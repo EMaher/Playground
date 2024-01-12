@@ -78,7 +78,7 @@ function Get-DefaultConfigurationSettings {
 
     $defaultConfigString = @"
 {
-    "Name": "temp",
+    "Name": "",
     "Properties": {
         "ProcessorCount": 2,
         "Memory": {
@@ -90,6 +90,8 @@ function Get-DefaultConfigurationSettings {
     }
 }
 "@
+
+    Write-Verbose "Default configuration: `n$($defaultConfigString)"
 
     return [VmConfiguration] $($defaultConfigString | ConvertFrom-Json)
 
@@ -153,6 +155,27 @@ function Set-HypervVmProperty {
     }
 }
 
+<#
+.SYNOPSIS
+Returns true is current machine is a Windows Server machine and false otherwise.
+#>
+function Get-RunningServerOperatingSystem {
+    [CmdletBinding()]
+    param()
+
+    return ($null -ne $(Get-Module -ListAvailable -Name 'servermanager') )
+}
+
+
+function Get-DhcpInstalled {
+    if ($(Get-RunningServerOperatingSystem) -and $(Get-WindowsFeature -Name 'DHCP')) {
+        return   $($(Get-WindowsFeature -Name 'DHCP') | Select-Object -ExpandProperty Installed)
+    }
+    else {
+        return $false
+    }
+}
+
 ####### Main Execution ##################################################################
 
 if ($ConfigFilePath) {
@@ -195,176 +218,201 @@ if ($addedLocalUsers.Count -gt 0) {
     }
 }
 
-Write-Host ""
+Write-Host "Permission check completed.`n"
+
+if (Get-RunningServerOperatingSystem) {
+
+    # *** CHECK VM CONFIGURATIONS  ***
+
+    Write-Host "*************************************"
+    Write-Host "*        Testing Network Settings   *"
+    Write-Host "*************************************"
+
+    if (Get-DhcpInstalled) {
+        $warningText = 
+        @"
+Installing DHCP role on an Azure VM is not a supported scenario.
+See https://learn.microsoft.com/azure/virtual-network/virtual-networks-faq#can-i-deploy-a-dhcp-server-in-a-vnet
+
+It is recommended to unistall the DHCP role and modify network adapter settings for Hyper-V VMs for internet connectivity.
+"@
+            
+    }
+    Write-Warning $warningText
+
+}
+Write-Host "Network check completed.`n"
 
 # *** CHECK VM CONFIGURATIONS  ***
+$vms = @(Get-VM)
 
-# TODO: Take VM/OS list to verify against known minimum configurations.
+if ($vms.Count -gt 0) {
 
-Write-Host "******************************"
-Write-Host "*        Testing VMs         *"
-Write-Host "******************************"
+    Write-Host "******************************"
+    Write-Host "*        Testing VMs         *"
+    Write-Host "******************************"
 
-$vms = Get-VM
-
-
-# Warn if any VMs are in saved state
-$savedStateVMs = @($vms | Where-Object { $_.State -eq "Saved" })
-if ($savedStateVMs) {
-    Write-Warning "Found VM(s) that are in a saved state. VM may fail to start if processor of the Azure VM changes.`n`t$($savedStateVMs -join '`n`t')"
-    if ($PSCmdlet.ShouldContinue("Found VM(s) that are in a saved state. VM may fail to start if processor of the Azure VM changes.`n`t$($savedStateVMs -join '`n`t')?", "Start and ShutDown Hyper-V VMs)?", [ref] $YesToAll, [ref] $NoToAll )) {
-        foreach ($vm in $savedStateVMs) {
-            $vm | Start-VM -WarningAction Continue
-            $vm | Stop-VM -Force -WarningAction Continue
+    # Warn if any VMs are in saved state
+    $savedStateVMs = @($vms | Where-Object { $_.State -eq "Saved" })
+    if ($savedStateVMs) {
+        Write-Warning "Found VM(s) that are in a saved state. VM may fail to start if processor of the Azure VM changes.`n`t$($savedStateVMs -join '`n`t')"
+        if ($PSCmdlet.ShouldContinue("Found VM(s) that are in a saved state. VM may fail to start if processor of the Azure VM changes.`n`t$($savedStateVMs -join '`n`t')?", "Start and ShutDown Hyper-V VMs)?", [ref] $YesToAll, [ref] $NoToAll )) {
+            foreach ($vm in $savedStateVMs) {
+                $vm | Start-VM -WarningAction Continue
+                $vm | Stop-VM -Force -WarningAction Continue
+            }
         }
     }
-}
 
-#For each VM
-foreach ($vm in $vms) {
-    $vmName = $vm.VMName
-    Write-Host "============================="
-    Write-Host "`t$($vmName)"
-    Write-Host "============================="
+    #For each VM
+    foreach ($vm in $vms) {
+        $vmName = $vm.VMName
+        Write-Host "============================="
+        Write-Host "`t$($vmName)"
+        Write-Host "============================="
 
-    #Config settings for VM
-    $currentConfig = $configs.VMConfigurations | Where-Object { $_.Name -eq $vmName }
-    if (-not $currentConfig) {
-        $currentConfig = Get-DefaultConfigurationSettings
-        $currentConfig.Name = $vmName
-    }
-    Write-Debug $currentConfig | Format-Custom
+        #Config settings for VM
+        $currentConfig = $configs.VMConfigurations | Where-Object { $_.Name -eq $vmName }
+        if (-not $currentConfig) {
+            $currentConfig = Get-DefaultConfigurationSettings
+            $currentConfig.Name = $vmName
+        }
+        Write-Debug $currentConfig | Format-Custom
     
 
-    Write-Verbose "Verifying: AutomaticStopAction==ShutDown"
-    $vm | Set-HypervVmProperty -PropertyName "AutomaticStopAction" `
-        -GetCurrentValueScriptBlock { $vm | Select-Object -ExpandProperty AutomaticStopAction } `
-        -GetDesiredValueScriptBlock { [Microsoft.HyperV.PowerShell.StopAction]::ShutDown } `
-        -IsCurrentValueAcceptableScriptBlock { $($vm | Select-Object -ExpandProperty AutomaticStopAction ) -eq [Microsoft.HyperV.PowerShell.StopAction]::ShutDown } `
-        -SetValueScriptBlock { $vm | Set-VM -AutomaticStopAction ShutDown } `
-        -RequiresVmStopped $true
+        Write-Verbose "Verifying: AutomaticStopAction==ShutDown"
+        $vm | Set-HypervVmProperty -PropertyName "AutomaticStopAction" `
+            -GetCurrentValueScriptBlock { $vm | Select-Object -ExpandProperty AutomaticStopAction } `
+            -GetDesiredValueScriptBlock { [Microsoft.HyperV.PowerShell.StopAction]::ShutDown } `
+            -IsCurrentValueAcceptableScriptBlock { $($vm | Select-Object -ExpandProperty AutomaticStopAction ) -eq [Microsoft.HyperV.PowerShell.StopAction]::ShutDown } `
+            -SetValueScriptBlock { $vm | Set-VM -AutomaticStopAction ShutDown } `
+            -RequiresVmStopped $true
 
 
-    Write-Verbose "Verifying: ProcessorCount >= $($currentConfig.Properties.ProcessorCount)"
-    $vm | Set-HypervVmProperty -PropertyName "ProcessorCount" `
-        -GetCurrentValueScriptBlock { $vm | Select-Object -ExpandProperty ProcessorCount } `
-        -GetDesiredValueScriptBlock {$currentConfig.Properties.ProcessorCount } `
-        -IsCurrentValueAcceptableScriptBlock { $vm.ProcessorCount -ge $currentConfig.Properties.ProcessorCount } `
-        -SetValueScriptBlock { 
-        # if (!($number_of_vCPUs = `
-        #             Read-Host "VM '$($vm.VMName)' has $($vm.ProcessorCount) virtual processor assigned to it.  [max $($env:NUMBER_OF_PROCESSORS), default $($currentConfig.Properties.ProcessorCount)]")) {
-        #     $number_of_vCPUs = $currentConfig.Properties.ProcessorCount 
-        # }
-        $number_of_vCPUs = $currentConfig.Properties.ProcessorCount
-        $number_of_vCPUs = [math]::Max(1, $number_of_vCPUs)
-        $number_of_vCPUs = [math]::Min($number_of_vCPUs, $env:NUMBER_OF_PROCESSORS)
-        $vm | Set-VM -ProcessorCount $number_of_vCPUs 
-    } `
-        -RequiresVmStopped $true
+        Write-Verbose "Verifying: ProcessorCount >= $($currentConfig.Properties.ProcessorCount)"
+        $vm | Set-HypervVmProperty -PropertyName "ProcessorCount" `
+            -GetCurrentValueScriptBlock { $vm | Select-Object -ExpandProperty ProcessorCount } `
+            -GetDesiredValueScriptBlock { $currentConfig.Properties.ProcessorCount } `
+            -IsCurrentValueAcceptableScriptBlock { $vm.ProcessorCount -ge $currentConfig.Properties.ProcessorCount } `
+            -SetValueScriptBlock { 
+            # if (!($number_of_vCPUs = `
+            #             Read-Host "VM '$($vm.VMName)' has $($vm.ProcessorCount) virtual processor assigned to it.  [max $($env:NUMBER_OF_PROCESSORS), default $($currentConfig.Properties.ProcessorCount)]")) {
+            #     $number_of_vCPUs = $currentConfig.Properties.ProcessorCount 
+            # }
+            $number_of_vCPUs = $currentConfig.Properties.ProcessorCount
+            $number_of_vCPUs = [math]::Max(1, $number_of_vCPUs)
+            $number_of_vCPUs = [math]::Min($number_of_vCPUs, $env:NUMBER_OF_PROCESSORS)
+            $vm | Set-VM -ProcessorCount $number_of_vCPUs 
+        } `
+            -RequiresVmStopped $true
    
 
-    $assignedMemory = $vm | Get-VMMemory
-    $desiredStartupMemory = Invoke-Expression($currentConfig.Properties.Memory.Startup)
-    Write-Verbose "Verifying: Memory.Startup > $($desiredStartupMemory)"
-    $vm | Set-HypervVmProperty -PropertyName "Memory - Startup" `
-        -GetCurrentValueScriptBlock { "$($($assignedMemory | Select-Object -ExpandProperty Startup) / 1GB) GB" } `
-        -GetDesiredValueScriptBlock { "$($desiredStartupMemory / 1GB) GB"} `
-        -IsCurrentValueAcceptableScriptBlock { $assignedMemory.Startup -ge $desiredStartupMemory } `
-        -SetValueScriptBlock { $vm | Set-VMMemory -Startup  $desiredStartupMemory } `
-        -RequiresVmStopped $true
+        $assignedMemory = $vm | Get-VMMemory
+        $desiredStartupMemory = Invoke-Expression($currentConfig.Properties.Memory.Startup)
+        Write-Verbose "Verifying: Memory.Startup > $($desiredStartupMemory)"
+        $vm | Set-HypervVmProperty -PropertyName "Memory - Startup" `
+            -GetCurrentValueScriptBlock { "$($($assignedMemory | Select-Object -ExpandProperty Startup) / 1GB) GB" } `
+            -GetDesiredValueScriptBlock { "$($desiredStartupMemory / 1GB) GB" } `
+            -IsCurrentValueAcceptableScriptBlock { $assignedMemory.Startup -ge $desiredStartupMemory } `
+            -SetValueScriptBlock { $vm | Set-VMMemory -Startup  $desiredStartupMemory } `
+            -RequiresVmStopped $true
 
-    Write-Verbose "Verifying: Memory.DynamicMemoryEnabled == $($currentConfig.Properties.Memory.DynamicMemoryEnabled)"
-    $vm | Set-HypervVmProperty -PropertyName "Memory - Dynamic Memory Enabled" `
-        -GetCurrentValueScriptBlock { $assignedMemory | Select-Object -ExpandProperty DynamicMemoryEnabled } `
-        -GetDesiredValueScriptBlock { $true } `
-        -IsCurrentValueAcceptableScriptBlock { $assignedMemory.DynamicMemoryEnabled -eq $($($currentConfig.Properties.Memory.DynamicMemoryEnabled)) } `
-        -SetValueScriptBlock { $vm | Set-VMMemory -DynamicMemoryEnabled $($($currentConfig.Properties.Memory.DynamicMemoryEnabled)) } `
-        -RequiresVmStopped $true
+        Write-Verbose "Verifying: Memory.DynamicMemoryEnabled == $($currentConfig.Properties.Memory.DynamicMemoryEnabled)"
+        $vm | Set-HypervVmProperty -PropertyName "Memory - Dynamic Memory Enabled" `
+            -GetCurrentValueScriptBlock { $assignedMemory | Select-Object -ExpandProperty DynamicMemoryEnabled } `
+            -GetDesiredValueScriptBlock { $true } `
+            -IsCurrentValueAcceptableScriptBlock { $assignedMemory.DynamicMemoryEnabled -eq $($($currentConfig.Properties.Memory.DynamicMemoryEnabled)) } `
+            -SetValueScriptBlock { $vm | Set-VMMemory -DynamicMemoryEnabled $($($currentConfig.Properties.Memory.DynamicMemoryEnabled)) } `
+            -RequiresVmStopped $true
 
-    if ($assignedMemory | Select-Object -ExpandProperty DynamicMemoryEnabled) {
-        $desiredMinimumMemory = Invoke-Expression($currentConfig.Properties.Memory.Minimum)
-        Write-Verbose "Verifying: Memory.Minimum >= $desiredMinimumMemory"
-        $vm | Set-HypervVmProperty -PropertyName "Memory - Minimum" `
-            -GetCurrentValueScriptBlock { "$($($assignedMemory | Select-Object -ExpandProperty Minimum) / 1GB) GB" } `
-            -GetDesiredValueScriptBlock { "$($desiredMinimumMemory / 1GB) GB"} `
-            -IsCurrentValueAcceptableScriptBlock { $($assignedMemory | Select-Object -ExpandProperty Minimum ) -ge $desiredMinimumMemory } `
-            -SetValueScriptBlock { $vm | Set-VMMemory -Minimum $desiredMinimumMemory } `
-            -RequiresVmStopped $true 
+        if ($assignedMemory | Select-Object -ExpandProperty DynamicMemoryEnabled) {
+            $desiredMinimumMemory = Invoke-Expression($currentConfig.Properties.Memory.Minimum)
+            Write-Verbose "Verifying: Memory.Minimum >= $desiredMinimumMemory"
+            $vm | Set-HypervVmProperty -PropertyName "Memory - Minimum" `
+                -GetCurrentValueScriptBlock { "$($($assignedMemory | Select-Object -ExpandProperty Minimum) / 1GB) GB" } `
+                -GetDesiredValueScriptBlock { "$($desiredMinimumMemory / 1GB) GB" } `
+                -IsCurrentValueAcceptableScriptBlock { $($assignedMemory | Select-Object -ExpandProperty Minimum ) -ge $desiredMinimumMemory } `
+                -SetValueScriptBlock { $vm | Set-VMMemory -Minimum $desiredMinimumMemory } `
+                -RequiresVmStopped $true 
 
-        $desiredMaximumMemory = Invoke-Expression($currentConfig.Properties.Memory.Maximum)
-        Write-Verbose "Verifying: Memory.Maximum >= $desiredMaximumMemory"
-        $vm | Set-HypervVmProperty -PropertyName "Memory - Maximum" `
-            -GetCurrentValueScriptBlock { $assignedMemory | Select-Object -ExpandProperty Maximum } `
-            -GetDesiredValueScriptBlock {"$($desiredMaximumMemory / 1GB) GB"} `
-            -IsCurrentValueAcceptableScriptBlock { $($assignedMemory | Select-Object -ExpandProperty Maximum ) -ge $desiredMaximumMemory } `
-            -SetValueScriptBlock { $vm | Set-VMMemory -Maximum $desiredMaximumMemory } `
-            -RequiresVmStopped $true 
-    }
+            $desiredMaximumMemory = Invoke-Expression($currentConfig.Properties.Memory.Maximum)
+            Write-Verbose "Verifying: Memory.Maximum >= $desiredMaximumMemory"
+            $vm | Set-HypervVmProperty -PropertyName "Memory - Maximum" `
+                -GetCurrentValueScriptBlock { $assignedMemory | Select-Object -ExpandProperty Maximum } `
+                -GetDesiredValueScriptBlock { "$($desiredMaximumMemory / 1GB) GB" } `
+                -IsCurrentValueAcceptableScriptBlock { $($assignedMemory | Select-Object -ExpandProperty Maximum ) -ge $desiredMaximumMemory } `
+                -SetValueScriptBlock { $vm | Set-VMMemory -Maximum $desiredMaximumMemory } `
+                -RequiresVmStopped $true 
+        }
 
-    # Verify disk is vhdx not vhd
+        # Verify disk is vhdx not vhd
 
-    $hardDriveDisks = @($vm | Get-VMHardDiskDrive)
-    foreach ($hardDriveDisk in $hardDriveDisks) {
-        $diskPath = $hardDriveDisk | Select-Object -ExpandProperty Path
-        $diskName = [System.IO.Path]::GetFileNameWithoutExtension($diskPath)
-        Write-Verbose "Verifying: HardDriveDisks.$diskName.VMType == Dynamic"
+        $hardDriveDisks = @($vm | Get-VMHardDiskDrive)
+        foreach ($hardDriveDisk in $hardDriveDisks) {
+            $diskPath = $hardDriveDisk | Select-Object -ExpandProperty Path
+            $diskName = [System.IO.Path]::GetFileNameWithoutExtension($diskPath)
+            Write-Verbose "Verifying: HardDriveDisks.$diskName.VMType == Dynamic"
 
-        $vm | Set-HypervVmProperty -PropertyName "Disk '$diskName' - VhdType" `
-            -GetCurrentValueScriptBlock { Get-VHD $diskPath | Select-Object -ExpandProperty VhdFormat } `
-            -GetDesiredValueScriptBlock { "VHDX" } `
-            -IsCurrentValueAcceptableScriptBlock { $(Get-VHD $diskPath | Select-Object -ExpandProperty VhdFormat) -eq "VHDX" } `
-            -SetValueScriptBlock { 
-            $newDiskPath = Join-Path $([System.IO.Path]::GetDirectoryName($diskPath)) "$($diskName).vhdx"
-            if (Test-Path $newDiskPath) {
-                Write-Error "Unable to convert '$($diskPath)' to '$($newDiskPath). '$($newDiskPath) exists." -ErrorAction Continue
-            }
-            else {
-                $controllerLocation = $hardDriveDisk | Select-Object -ExpandProperty ControllerLocation
-                $controllerNumber = $hardDriveDisk | Select-Object -ExpandProperty ControllerNumber
-                $controllerType = $hardDriveDisk | Select-Object -ExpandProperty ControllerType
+            $vm | Set-HypervVmProperty -PropertyName "Disk '$diskName' - VhdType" `
+                -GetCurrentValueScriptBlock { Get-VHD $diskPath | Select-Object -ExpandProperty VhdFormat } `
+                -GetDesiredValueScriptBlock { "VHDX" } `
+                -IsCurrentValueAcceptableScriptBlock { $(Get-VHD $diskPath | Select-Object -ExpandProperty VhdFormat) -eq "VHDX" } `
+                -SetValueScriptBlock { 
+                $newDiskPath = Join-Path $([System.IO.Path]::GetDirectoryName($diskPath)) "$($diskName).vhdx"
+                if (Test-Path $newDiskPath) {
+                    Write-Error "Unable to convert '$($diskPath)' to '$($newDiskPath). '$($newDiskPath) exists." -ErrorAction Continue
+                }
+                else {
+                    $controllerLocation = $hardDriveDisk | Select-Object -ExpandProperty ControllerLocation
+                    $controllerNumber = $hardDriveDisk | Select-Object -ExpandProperty ControllerNumber
+                    $controllerType = $hardDriveDisk | Select-Object -ExpandProperty ControllerType
                     
 
-                $hardDriveDisk | Remove-VMHardDiskDrive
-                Convert-VHD -Path $diskPath -DestinationPath $newDiskPath -VHDType Dynamic 
+                    $hardDriveDisk | Remove-VMHardDiskDrive
+                    Convert-VHD -Path $diskPath -DestinationPath $newDiskPath -VHDType Dynamic 
 
-                Add-VMHardDiskDrive -VMName $vm.VMName -Path $newDiskPath -ControllerLocation $controllerLocation -ControllerType $controllerType -ControllerNumber $controllerNumber                    
-            }
+                    Add-VMHardDiskDrive -VMName $vm.VMName -Path $newDiskPath -ControllerLocation $controllerLocation -ControllerType $controllerType -ControllerNumber $controllerNumber                    
+                }
 
-        } `
-            -RequiresVmStopped $true 
+            } `
+                -RequiresVmStopped $true 
+        }
+
+        Write-Host "Testing Hyper-V VMs completed.`n"
     }
 
-    Write-Host ""
-}
 
-Write-Host "******************************"
-Write-Host "*           RESULTS          *"
-Write-Host "******************************"
+    Write-Host "******************************"
+    Write-Host "*           RESULTS          *"
+    Write-Host "******************************"
 
-# List current status
-foreach ($vm in $vms) {
-    Write-Host "============================="
-    Write-Host "`t$($vm.VMName)"
-    Write-Host "============================="
-    Write-Host "`tState: $($vm | Select-Object -ExpandProperty State)"
-    Write-Host "`tAutomaticStopAction: $($vm | Select-Object -ExpandProperty AutomaticStopAction)"
-    Write-Host "`tvCPU(s): $($vm | Select-Object -ExpandProperty ProcessorCount)"
-    Write-Host "`tMemory - Startup: $($vm | Get-VMMemory | Select-Object -ExpandProperty Startup)"
-    Write-Host "`tMemory - Dynamic Memory Enabled: $($vm | Get-VMMemory | Select-Object -ExpandProperty DynamicMemoryEnabled)"
-    Write-Host "`tMemory - Minimum: $($vm | Get-VMMemory | Select-Object -ExpandProperty Minimum)"
-    Write-Host "`tMemory - Maximum: $($vm | Get-VMMemory | Select-Object -ExpandProperty Maximum)"
-    $hardDriveDisks = @($vm | Get-VMHardDiskDrive)
-    foreach ($hardDriveDisk in $hardDriveDisks) {
-        $diskPath = $hardDriveDisk | Select-Object -ExpandProperty Path
-        Write-Host "`tDisk - $([System.IO.Path]::GetFileNameWithoutExtension($diskPath)): $(Get-VHD $diskPath | Select-Object -ExpandProperty VhdFormat)"
-    }
-
-}
-
-Write-Host "******************************"
-if ($PSCmdlet.ShouldContinue("Restart all Hyper-V VMs to ensure all updated settings are in effect?", "Restart Hyper-V VMs?", [ref] $YesToAll, [ref] $NoToAll )) {
+    # List current status
     foreach ($vm in $vms) {
-        $vm | Stop-VM -Force -WarningAction SilentlyContinue
-        $vm | Start-VM -WarningAction Continue
+        Write-Host "============================="
+        Write-Host "`t$($vm.VMName)"
+        Write-Host "============================="
+        Write-Host "`tState: $($vm | Select-Object -ExpandProperty State)"
+        Write-Host "`tAutomaticStopAction: $($vm | Select-Object -ExpandProperty AutomaticStopAction)"
+        Write-Host "`tvCPU(s): $($vm | Select-Object -ExpandProperty ProcessorCount)"
+        Write-Host "`tMemory - Startup: $($vm | Get-VMMemory | Select-Object -ExpandProperty Startup)"
+        Write-Host "`tMemory - Dynamic Memory Enabled: $($vm | Get-VMMemory | Select-Object -ExpandProperty DynamicMemoryEnabled)"
+        Write-Host "`tMemory - Minimum: $($vm | Get-VMMemory | Select-Object -ExpandProperty Minimum)"
+        Write-Host "`tMemory - Maximum: $($vm | Get-VMMemory | Select-Object -ExpandProperty Maximum)"
+        $hardDriveDisks = @($vm | Get-VMHardDiskDrive)
+        foreach ($hardDriveDisk in $hardDriveDisks) {
+            $diskPath = $hardDriveDisk | Select-Object -ExpandProperty Path
+            Write-Host "`tDisk - $([System.IO.Path]::GetFileNameWithoutExtension($diskPath)): $(Get-VHD $diskPath | Select-Object -ExpandProperty VhdFormat)"
+        }
+
     }
-}
+    Write-Host ""
+
+    Write-Host "******************************"
+    if ($PSCmdlet.ShouldContinue("Restart all Hyper-V VMs to ensure all updated settings are in effect?", "Restart Hyper-V VMs?", [ref] $YesToAll, [ref] $NoToAll )) {
+        foreach ($vm in $vms) {
+            $vm | Stop-VM -Force -WarningAction SilentlyContinue
+            $vm | Start-VM -WarningAction Continue
+            Write-Verbose "Restarted $($vm.VMName)."
+        }
+    }
+} 

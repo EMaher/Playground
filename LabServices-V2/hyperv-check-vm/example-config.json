@@ -1,0 +1,17 @@
+{
+    "$schema": "https://raw.githubusercontent.com/EMaher/Playground/check-hyperv-vm/LabServices-V2/hyperv-check-vm/vm-config-schema.json",
+    "VMConfigurations": [
+        {
+            "Name": "test-vm",
+            "Properties": {
+                "ProcessorCount": 2,
+                "Memory": {
+                    "Startup": "2GB",
+                    "DynamicMemoryEnabled": true,
+                    "Minimum": "2GB",
+                    "Maximum": "4GB"
+                }
+            }
+        }
+    ]
+}s
