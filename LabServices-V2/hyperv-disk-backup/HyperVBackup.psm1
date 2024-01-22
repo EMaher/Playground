@@ -1,4 +1,4 @@
- 
+  
 #************* Settings *****************
 
 function Get-ConfigurationSettings {
@@ -115,8 +115,10 @@ function Test-FileReady {
             $returnVal = $false
         }
         finally {
-            $fs.Close()
-            $fs.Dispose()
+            if ($fs){
+                $fs.Close()
+                $fs.Dispose()
+            }
         }
     }
     return $returnVal
@@ -164,4 +166,4 @@ Export-ModuleMember -Function Get-CurrentUserEmail
 Export-ModuleMember -Function Get-AzADUserIdByEmail
 Export-ModuleMember -Function Get-ExpectedContainerName
 Export-ModuleMember -Function Get-BlobNameMapping
-Export-ModuleMember -Function Test-FileReady 
+Export-ModuleMember -Function Test-FileReady  
