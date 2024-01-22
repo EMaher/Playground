@@ -42,7 +42,9 @@
     ```powershell
     Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EMaher/Playground/master/LabServices-V2/hyperv-disk-backup/HyperVBackup.psm1" -OutFile "HyperVBackup.psm1"
     Invoke-WebRequest -Uri "https://raw.githubusercontent.com/EMaher/Playground/master/LabServices-V2/hyperv-disk-backup/New-HyperVDiskStorage.ps1" -OutFile "New-HyperVDiskStorage.ps1"
+   ```
 
+   ```powershell
     ./New-HyperVDiskStorage.ps1 -ResourceGroupName "<ResourceGroupName>" -StorageAccountName "<StorageAccountName>" -Location "<location>" -InstructorEmails @('email1@myschool.com', 'email2@myschool.com') -StudentEmails @('student1@myschool.com', 'student2@myschool.com') -TermCode "<TermCode>"
     ```
 
