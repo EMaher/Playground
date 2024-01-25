@@ -183,10 +183,11 @@ Can not set Hyper-V properties through their PowerShell objects.  You must use S
 function Set-HypervVmProperty {
     param (
         [Parameter(Mandatory = $true, ValueFromPipeline)][Microsoft.HyperV.PowerShell.VirtualMachine] $vm,
+        [scriptblock]$GetCurrentValueScriptBlock,
+        [scriptblock]$GetNewValueScriptBlock,
         [Parameter(Mandatory = $true)][scriptblock]$IsCurrentValueAcceptableScriptBlock,
         [Parameter(Mandatory = $true)][scriptblock]$SetValueScriptBlock,
-        [Parameter(Mandatory = $true)][string]$PropertyName,
-        [Parameter(Mandatory = $false)][string]$PropertyDetailsMessage = ""
+        [Parameter(Mandatory = $true)][string]$PropertyName
     )
 
     $isAcceptableValue = & $IsCurrentValueAcceptableScriptBlock
@@ -204,7 +205,8 @@ function Set-HypervVmProperty {
         }
 
         #Change value
-        if ($PSCmdlet.ShouldContinue($PropertyDetailsMessage, "Change value of $($PropertyName)?", [ref] $YesToAll, [ref] $NoToAll)) {     
+        $promptMessage = Get-UpdatePropertyMessage -CurrentValue $(& $GetCurrentValueScriptBlock) -NewValue $(& $GetNewValueScriptBlock)
+        if ($PSCmdlet.ShouldContinue($promptMessage, "Change value of $($PropertyName)?", [ref] $YesToAll, [ref] $NoToAll)) {     
             & $SetValueScriptBlock
         }
     }
@@ -393,12 +395,10 @@ try {
 
             Write-Verbose "Verifying: AutomaticStopAction==ShutDown"
             $vm | Set-HypervVmProperty -PropertyName "AutomaticStopAction" `
+                -GetCurrentValueScriptBlock { $vm | Select-Object -ExpandProperty AutomaticStopAction } `
+                -GetNewValueScriptBlock { [Microsoft.HyperV.PowerShell.StopAction]::ShutDown } `
                 -IsCurrentValueAcceptableScriptBlock { $($vm | Select-Object -ExpandProperty AutomaticStopAction ) -eq [Microsoft.HyperV.PowerShell.StopAction]::ShutDown } `
-                -SetValueScriptBlock { $vm | Set-VM -AutomaticStopAction ShutDown } `
-                -PropertyDetailsMessage = $(Get-UpdatePropertyMessage `
-                    -CurrentValue $($vm | Select-Object -ExpandProperty AutomaticStopAction) `
-                    -NewValue $([Microsoft.HyperV.PowerShell.StopAction]::ShutDown))
-
+                -SetValueScriptBlock { $vm | Set-VM -AutomaticStopAction ShutDown } 
 
             $processorCount = $vm | Select-Object -ExpandProperty ProcessorCount
             $expectedProcessorCount = $currentConfig.Properties.ProcessorCount
@@ -406,18 +406,20 @@ try {
             $expectedProcessorCount = [math]::Min($expectedProcessorCount, $env:NUMBER_OF_PROCESSORS)
             Write-Verbose "Verifying: ProcessorCount >= $($expectedProcessorCount)"
             $vm | Set-HypervVmProperty -PropertyName "ProcessorCount" `
+                -GetCurrentValueScriptBlock {$processorCount} `
+                -GetNewValueScriptBlock {$expectedProcessorCount} `
                 -IsCurrentValueAcceptableScriptBlock { $processorCount -ge $expectedProcessorCount } `
-                -SetValueScriptBlock {  $vm | Set-VM -ProcessorCount $expectedProcessorCount } `
-                -PropertyDetailsMessage $(Get-UpdatePropertyMessage -CurrentValue $processorCount -NewValue $expectedProcessorCount)
+                -SetValueScriptBlock {  $vm | Set-VM -ProcessorCount $expectedProcessorCount } 
 
             $assignedMemory = $vm | Get-VMMemory
             $startupMemory = $assignedMemory | Select-Object -ExpandProperty Startup
             $expectedStartupMemory = Invoke-Expression($currentConfig.Properties.Memory.Startup) #Invoke-Expression required to convert "1GB" to 1GB
             Write-Verbose "Verifying: Memory.Startup >= $($expectedStartupMemory)"
             $vm | Set-HypervVmProperty -PropertyName "Memory - Startup" `
+                -GetCurrentValueScriptBlock {Get-UpdatePropertyMessage -CurrentValue "$($startupMemory / 1GB) GB" } `
+                -GetNewValueScriptBlock {"$($expectedStartupMemory / 1GB) GB"} `
                 -IsCurrentValueAcceptableScriptBlock { $startupMemory -ge $expectedStartupMemory } `
-                -SetValueScriptBlock { $vm | Set-VMMemory -Startup  $expectedStartupMemory } `
-                -PropertyDetailsMessage $(Get-UpdatePropertyMessage -CurrentValue "$($startupMemory / 1GB) GB" -NewValue "$($expectedStartupMemory / 1GB) GB" )
+                -SetValueScriptBlock { $vm | Set-VMMemory -Startup  $expectedStartupMemory } 
 
             $dynamicMemoryEnabled = $assignedMemory | Select-Object -ExpandProperty DynamicMemoryEnabled
             $expectedDynamicMemoryEnabled = $currentConfig.Properties.Memory.DynamicMemoryEnabled
@@ -426,10 +428,7 @@ try {
                 -GetCurrentValueScriptBlock { $dynamicMemoryEnabled } `
                 -GetNewValueScriptBlock { $expectedDynamicMemoryEnabled } `
                 -IsCurrentValueAcceptableScriptBlock { $dynamicMemoryEnabled -eq $expectedDynamicMemoryEnabled } `
-                -SetValueScriptBlock { $vm | Set-VMMemory -DynamicMemoryEnabled $expectedDynamicMemoryEnabled } `
-                -PropertyDetailsMessage $(Get-UpdatePropertyMessage -CurrentValue $dynamicMemoryEnabled -NewValue $expectedDynamicMemoryEnabled)
-
-#START HERE!
+                -SetValueScriptBlock { $vm | Set-VMMemory -DynamicMemoryEnabled $expectedDynamicMemoryEnabled } 
 
             $dynamicMemoryEnabled = $assignedMemory | Select-Object -ExpandProperty DynamicMemoryEnabled #get value again, incase changed above
             if ($assignedMemory | Select-Object -ExpandProperty DynamicMemoryEnabled) {
@@ -439,8 +438,7 @@ try {
                     -GetCurrentValueScriptBlock { "$($($assignedMemory | Select-Object -ExpandProperty Minimum) / 1GB) GB" } `
                     -GetNewValueScriptBlock { "$($desiredMinimumMemory / 1GB) GB" } `
                     -IsCurrentValueAcceptableScriptBlock { $($assignedMemory | Select-Object -ExpandProperty Minimum ) -ge $desiredMinimumMemory } `
-                    -SetValueScriptBlock { $vm | Set-VMMemory -Minimum $desiredMinimumMemory } `
-                    -RequiresVmStopped $true 
+                    -SetValueScriptBlock { $vm | Set-VMMemory -Minimum $desiredMinimumMemory } 
 
                 $desiredMaximumMemory = Invoke-Expression($currentConfig.Properties.Memory.Maximum)
                 Write-Verbose "Verifying: Memory.Maximum >= $desiredMaximumMemory"
@@ -448,8 +446,7 @@ try {
                     -GetCurrentValueScriptBlock { $assignedMemory | Select-Object -ExpandProperty Maximum } `
                     -GetNewValueScriptBlock { "$($desiredMaximumMemory / 1GB) GB" } `
                     -IsCurrentValueAcceptableScriptBlock { $($assignedMemory | Select-Object -ExpandProperty Maximum ) -ge $desiredMaximumMemory } `
-                    -SetValueScriptBlock { $vm | Set-VMMemory -Maximum $desiredMaximumMemory } `
-                    -RequiresVmStopped $true 
+                    -SetValueScriptBlock { $vm | Set-VMMemory -Maximum $desiredMaximumMemory } 
             }
 
             # Verify disk is vhdx not vhd
@@ -473,7 +470,6 @@ try {
                         $controllerNumber = $hardDriveDisk | Select-Object -ExpandProperty ControllerNumber
                         $controllerType = $hardDriveDisk | Select-Object -ExpandProperty ControllerType
                     
-
                         $hardDriveDisk | Remove-VMHardDiskDrive
                         Convert-VHD -Path $diskPath -DestinationPath $newDiskPath -VHDType Dynamic 
 
