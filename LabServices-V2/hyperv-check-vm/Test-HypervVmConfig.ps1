@@ -69,7 +69,7 @@ trap {
 
 ###################################################################################################
 #
-# Class definitions for VM configurations
+# Class definitions for Hyper-VM configurations
 #
 
 class ConfigurationInfo {
@@ -105,6 +105,18 @@ class VMConfigurationMemoryProperties {
 # Functions used in this script.
 # 
 
+<#
+.SYNOPSIS
+Converts contents of json file into ConfigurationInfo class that lists expected vCPUs and memory.
+See 'vm-config-schema.json' for schema.
+
+.PARAMETER SettingsFilePath
+Parameter description
+
+.NOTES
+Useful when checking ethical hacking course where vulnerable VMs need less than default vCPUs and memory.
+
+#>
 function Get-ConfigurationSettings {
     [CmdletBinding()]
     
@@ -118,13 +130,14 @@ function Get-ConfigurationSettings {
     return [ConfigurationInfo] $settings
 }
 
-
+<#
+.SYNOPSIS
+Returns VmConfiguration instances with default values for expected configuration of vCPUs and memory.
+#>
 function Get-DefaultConfigurationSettings {
     [CmdletBinding()]
     [OutputType('VmConfiguration')]
-    param(
-        [string]$SettingsFilePath
-    )
+    param(  )
 
     $defaultConfigString = 
 @"
@@ -142,8 +155,7 @@ function Get-DefaultConfigurationSettings {
     }
 "@
 
-    #Write-Host "Default configuration: `n$($defaultConfigString)"
-
+    Write-Debug "Default configuration: `n$($defaultConfigString)"
     return [VmConfiguration] $($defaultConfigString | ConvertFrom-Json)
 
 }
@@ -157,9 +169,11 @@ Hyper-V VM object
 
 .PARAMETER GetCurrentValueScriptBlock
 Optional. Script block that returns the current value of Hyper-V property being checked.
+Value used in message when asking user if they want to update property value.
 
 .PARAMETER GetNewValueScriptBlock
 Optional. Script block that returns the new value that property will be set to, if current property value is not acceptable.
+Value used in message when asking user if they want to update property value.
 
 .PARAMETER IsCurrentValueAcceptableScriptBlock
 Returns true if value for current property is acceptable, false otherwise.
@@ -171,7 +185,8 @@ Script that sets the property to an acceptable value.
 Name of property being checked. 
 
 .NOTES
-Can not set Hyper-V properties through their PowerShell objects.  You must use Set-VM commandlet.
+This function exists because you cannot set Hyper-V properties through their PowerShell objects.  
+You must use Set-VM or Set-VMMemory commandlets
 #>
 function Set-HypervVmProperty {
     param (
@@ -206,6 +221,7 @@ function Set-HypervVmProperty {
             $prompt += " New value will be '$(& $GetNewValueScriptBlock)'."
         }
 
+        #Ask user permission before updating property.
         if ($PSCmdlet.ShouldContinue($prompt, "Change value of $($PropertyName)?", [ref] $YesToAll, [ref] $NoToAll)) {     
             & $SetValueScriptBlock
         }
@@ -246,7 +262,7 @@ function Get-HyperVAdminGroup{
 
 <#
 .SYNOPSIS
-Returns true if user is a Hyper-V Admin
+Returns true if user is in the 'Hyper-V Admininstrator' group.
 #>
 function Get-HypervAdminStatus{
     param(
@@ -263,7 +279,7 @@ function Get-HypervAdminStatus{
 
 <#
 .SYNOPSIS
-Returns true if user is an Administrator
+Returns true if user is in the local Administrator group.
 #>
 function Get-LocalAdminStatus{
     param(
@@ -347,16 +363,18 @@ try {
                 foreach ($vm in $savedStateVMs) {
                     $vm | Start-VM -WarningAction Continue
                     $vm | Stop-VM -Force -WarningAction Continue
+                    Write-Verbose "Hyper-V VM $($vm.VMName) started and stopped."
                 }
             }
         }
 
-        # Premptively stop all VMs.  Most settings require the VM to be stopped befor the setting can be updated.
+        # Premptively stop all VMs.  Most settings require the VM to be stopped before the setting can be updated.
         $runningStateVMs = @($vms | Where-Object { $_.State -eq "Running" })
         if ($runningStateVMs) {
             if ($PSCmdlet.ShouldContinue("Found VM(s) that are running. VMs must be shutdown before settings are updated.", "ShutDown Hyper-V VMs?", [ref] $YesToAll, [ref] $NoToAll )) {
-                foreach ($vm in $savedStateVMs) {
+                foreach ($vm in $runningStateVMs) {
                     $vm | Stop-VM -Force -WarningAction Continue
+                    Write-Verbose "Hyper-V VM $($vm.VMName) stopped."
                 }
             }
         }
@@ -414,14 +432,13 @@ try {
                 -SetValueScriptBlock { $vm | Set-VMMemory -DynamicMemoryEnabled $expectedDynamicMemoryEnabled } 
                 
             if ($assignedMemory | Select-Object -ExpandProperty DynamicMemoryEnabled) {
-                $dynamicMemoryEnabled = $assignedMemory | Select-Object -ExpandProperty DynamicMemoryEnabled #get value again, incase changed above
                 $desiredMinimumMemory = Invoke-Expression($currentConfig.Properties.Memory.Minimum)
                 Write-Host "Verifying: Memory.DynamicMemory.Minimum >= $desiredMinimumMemory"
                 $vm | Set-HypervVmProperty -PropertyName "Dynamic Memory - Minimum" `
                     -GetCurrentValueScriptBlock { "$($($assignedMemory | Select-Object -ExpandProperty Minimum) / 1GB) GB" } `
                     -GetNewValueScriptBlock { "$($desiredMinimumMemory / 1GB) GB" } `
                     -IsCurrentValueAcceptableScriptBlock { $($assignedMemory | Select-Object -ExpandProperty Minimum ) -ge $desiredMinimumMemory } `
-                    -SetValueScriptBlock { $vm | Set-VMMemory -Minimum $desiredMinimumMemory } 
+                    -SetValueScriptBlock { $vm | Set-VMMemory -MinimumBytes  $desiredMinimumMemory } 
 
                 $desiredMaximumMemory = Invoke-Expression($currentConfig.Properties.Memory.Maximum)
                 Write-Host "Verifying: Memory.DynamicMemory.Maximum >= $desiredMaximumMemory"
@@ -429,7 +446,7 @@ try {
                     -GetCurrentValueScriptBlock { $assignedMemory | Select-Object -ExpandProperty Maximum } `
                     -GetNewValueScriptBlock { "$($desiredMaximumMemory / 1GB) GB" } `
                     -IsCurrentValueAcceptableScriptBlock { $($assignedMemory | Select-Object -ExpandProperty Maximum ) -ge $desiredMaximumMemory } `
-                    -SetValueScriptBlock { $vm | Set-VMMemory -Maximum $desiredMaximumMemory } 
+                    -SetValueScriptBlock { $vm | Set-VMMemory -MaximumBytes  $desiredMaximumMemory } 
             }
 
             # Verify disk is vhdx not vhd
@@ -522,10 +539,10 @@ try {
             Write-Host "`tState: $($vm | Select-Object -ExpandProperty State)"
             Write-Host "`tAutomaticStopAction: $($vm | Select-Object -ExpandProperty AutomaticStopAction)"
             Write-Host "`tvCPU(s): $($vm | Select-Object -ExpandProperty ProcessorCount)"
-            Write-Host "`tMemory - Startup: $($vm | Get-VMMemory | Select-Object -ExpandProperty Startup)"
+            Write-Host "`tMemory - Startup: $($($vm | Get-VMMemory | Select-Object -ExpandProperty Startup)/1GB) GB"
             Write-Host "`tMemory - Dynamic Memory Enabled: $($vm | Get-VMMemory | Select-Object -ExpandProperty DynamicMemoryEnabled)"
-            Write-Host "`tMemory - Minimum: $($vm | Get-VMMemory | Select-Object -ExpandProperty Minimum)"
-            Write-Host "`tMemory - Maximum: $($vm | Get-VMMemory | Select-Object -ExpandProperty Maximum)"
+            Write-Host "`tMemory - Minimum: $($($vm | Get-VMMemory | Select-Object -ExpandProperty Minimum)/1GB) GB"
+            Write-Host "`tMemory - Maximum: $($($vm | Get-VMMemory | Select-Object -ExpandProperty Maximum)/1GB) GB"
             $hardDriveDisks = @($vm | Get-VMHardDiskDrive)
             foreach ($hardDriveDisk in $hardDriveDisks) {
                 $diskPath = $hardDriveDisk | Select-Object -ExpandProperty Path
@@ -536,7 +553,7 @@ try {
         Write-Host ""
 
         Write-Host "******************************"
-        if ($PSCmdlet.ShouldContinue("Restart all Hyper-V VMs?", "Restart Hyper-V VMs?", [ref] $YesToAll, [ref] $NoToAll )) {
+        if ($PSCmdlet.ShouldContinue("Done checking Hyper-V VMs.  Restart all Hyper-V VMs?", "Restart Hyper-V VMs?", [ref] $YesToAll, [ref] $NoToAll )) {
             foreach ($vm in $vms) {
                 $vm | Stop-VM -Force -WarningAction SilentlyContinue
                 $vm | Start-VM -WarningAction Continue
