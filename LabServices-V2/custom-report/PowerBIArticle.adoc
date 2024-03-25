@@ -1,0 +1,85 @@
+= Power BI Reports for Azure Lab Services
+
+Azure Lab Services costs are integrated with Cost Management.  However, sometimes it’s useful to create a custom report for your team.  We can do this using the line item data from Cost Management.  In this blog post we will use Power BI desktop to create a basic report that shows total cost, total number of virtual machines and total number of labs.  The report will also include a table that shows cost per lab and cost per virtual machine.
+
+== Part 1: Visualizing Cost Management Data
+
+To create this report, we need to complete four major tasks.
+
+1. Get the data. We need to import data into PowerBI.
+2. Transform the data.   Each cost line item has all the information we need, but it will need to be separated, so we can work with lab and lab virtual machine information individually.
+3. Create the data visualization.
+4. Publish the report for others to see.
+
+=== Get the data
+
+There are couple options to import the Cost Management data into PowerBI.  Which one to use will depend on your type of Azure agreement and your permission level.
+
+==== Azure Cost Management connector
+
+The first option is the https://docs.microsoft.com/power-bi/connect-data/desktop-connect-azure-cost-management[Azure Cost Management connector]. Follow the instructions at https://docs.microsoft.com/en-us/power-bi/connect-data/desktop-connect-azure-cost-management[Create visuals and reports with the Azure Cost Management connector in Power BI Desktop].  You will need to provide a billing scope which could cover from a billing agreement to a specific resource group.  See https://docs.microsoft.com/en-us/azure/cost-management-billing/costs/understand-work-scopes[understand and work with Azure Cost Management scopes] for more information about scopes.  See https://docs.microsoft.com/azure/cost-management-billing/costs/understand-work-scopes#identify-the-resource-id-for-a-scope[identify resource id for a scope] for instructions to get billing scope based on the type of scope you are using.
+
+The Azure Cost Management connector currently supports customers with a https://azure.microsoft.com/pricing/purchase-options/microsoft-customer-agreement/[Microsoft Customer Agreement] or an https://azure.microsoft.com/pricing/enterprise-agreement/[Enterprise Agreement (EA)].  There are also some https://docs.microsoft.com/rest/api/consumption/#list-of-unsupported-subscription-types[unsupported subscription types].  To successfully use the connector, you must have correct permissions and the ability for users to read cost management data must be enabled by the tenant administrator.  You can check your access by calling the cost management https://docs.microsoft.com/rest/api/consumption/usage-details/list[usage detail api] directly.
+
+==== Azure Cost Management exports
+
+The second option is to export costs to a storage account from Azure Cost Management.  Follow instructions at https://docs.microsoft.com/en-us/azure/cost-management-billing/costs/tutorial-export-acm-data?tabs=azure-portal[Tutorial - Create and manage exported data from Azure Cost Management | Microsoft Docs to create the recurring export].  You can choose to have data exported daily, weekly or monthly.  Each export will be a CSV file saved in blob storage.
+
+In PowerBI Desktop, we will use the Azure Blob Storage connector to import this data.  Select the usage detail data from the storage account container you used when scheduling the cost management data exports.  Choose to https://docs.microsoft.com/power-bi/transform-model/desktop-combine-binaries#combine-files-behavior[combine the files] when importing the CSV file data.
+
+=== Transform the data
+
+Each usage detail line item has the information for the full resource id of the virtual machine (either template or student) associated with the cost.  As explained in the https://docs.microsoft.com/azure/lab-services/cost-management-guide[cost management guide for Azure Lab Services], these resources follow the patterns:
+
+```
+/subscriptions/{subscription-id}/resourceGroups/{resource-group}/providers/Microsoft.LabServices/labs/{lab-name}/virtualmachines/{virtual-machine-number}
+```
+
+For our report, we will need apply some transformations to the the lab name, lab vm id and lab plan for each cost entry.
+
+Complete the following steps in the Power Query Editor:
+
+1. Filter on *ConsumedService* equal to *Microsoft.labservices*.
+2. Remove duplicate rows.  We do this to avoid any issues if using Cost Management exports and data is accidentally exported multiple times.  Select all columns except the Source.Name.
+3. Duplicate *InstanceId* column and rename it *ResourceId*.
+4. Split the *InstanceId* column. Split on the right-most `+/+` deliminator.
+5. Clean up split columns.
+	. Delete *InstanceId.1*. 
+	. Rename *InstanceId.2* to *LabVmId*.
+6. Duplicate *ResourceId* column.
+7. Split the *ResourceId - Copy* column. Split on the right-most `+/+` deliminator.
+8. Delete the *ResourceId - Copy.2* column.
+9. Split the *ResourceId - Copy.1* column. Split on the right-most `+/+` deliminator.
+10. Delete the *ResourceId - Copy.3* column.
+11. Rename the *ResourceId - Copy.2* column to *LabId*.
+12. Add a new column that parses the JSON from *Tags* column and create new column named *JSON*. 
+13. Expand the new *JSON* column.
+14. Rename the *ms-isTemplate* column to *IsTemplateVM*.
+15. Rename the *ms-LabName* column to *Lab*.
+16. Rename the *ms-LabPlanId* to *LabPlanId*.
+17. Duplicate the *LabPlanId* column.
+18. Split the *LabPlanId - Copy* column.  Split on the right-most `+/+` deliminator.
+19. Delect the *LabPlanId - Copy.1* column.
+20. Rename the *LabPlanId - Copy.2* column to *LabPlan*
+21. If you're using custom tags, consider using adding a new column that parses JSON from *Tags* column and create new column named *TagRecord*. 
+22. Save transformations.
+
+=== Visualize the data
+
+First, let's create some cards for high-level information.  Our cards will show the total cost, number of labs and number of virtual machines used. 
+
+==== Total Cost
+
+The total cost is held in the *PreTaxCost* column.  PowerBI already recognizes that *PreTaxCost* is number and will automatically add all the column values to create a sum.  Add a card to the visual and add *PreTaxCost* to the Field property of the card visualization.  Optionally change the name for the visualization from PreTaxCost to Total Cost.  
+
+==== Number of Labs
+Next, let's display the number labs.  For the most accurate reporting, we can't just create a measure that counts all the distinct values in the *Lab* column because it is possible to have two labs with the same name in different resource groups.  So, we need to create a card that counts _distinct_ values of *LabId* column.
+
+==== Total Number of Virtual Machines
+Creating a card for the total number of virtual machines used will be similar to creating a card for total number of labs.  So, we need to create a card that counts _distinct_ values of *ResourceId* column. (Remember, cost entries are created on a per-VM level.)
+
+==== Lab Details
+Now let's create a matrix visual to allow us to drill down into our data. For instructions how to create a matrix visualization, see create a matrix visual in Power BI.  For our matrix visualization, we'll add the *SubscriptionGuid*, *ResourceGroup*, *Lab*, *LabVmId* for the rows.  We'll use the distinct count of *LabId*, the distinct count of *ResourceId*, and the sum of *PreTaxCost*, and *Currency*  for our values.  Note, for the currency column, the first value for currency will be shown with the matrix is collapsed.
+
+=== Publish the data
+Last step is to publish the report!  See publish datasets and reports from Power BI Desktop for further instructions.
